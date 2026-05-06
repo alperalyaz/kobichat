@@ -25,17 +25,20 @@ Kurulum çıktısı `release/` altında oluşur; bu klasör Git’e dahil edilme
 
 ## GitHub’a ilk yükleme
 
-Bu makinede GitHub CLI ile oturum açın:
+Bu makinede GitHub CLI ile oturum açın (etkileşimli; tarayıcı veya token seçebilirsiniz):
 
 ```bash
 gh auth login
 ```
 
-Ardından boş bir repo oluşturup gönderin (örnek repo adı `kobichat`):
+Ardından bu klasörde boş bir repo oluşturup gönderin (`kobichat` adı doluysa başka bir ad verin):
 
 ```bash
-gh repo create kobichat --private --source=. --remote=origin --push
+cd d:\MercanYazılım\lan-chat
+gh repo create kobichat --public --source=. --remote=origin --push
 ```
+
+Özel repo için `--private` kullanın. Otomasyon için ortam değişkeni `GH_TOKEN` (klasik PAT, `repo` izni) da kullanılabilir.
 
 Veya GitHub web arayüzünden boş repo oluşturduktan sonra:
 
@@ -45,9 +48,11 @@ git branch -M main
 git push -u origin main
 ```
 
-**Not:** İlk commit öncesi `git config user.name` ve `git config user.email` değerlerini kendi bilgilerinizle güncellemek isterseniz:
+**Not:** Yerel commit yazarı şu an `Mercan Yazılım` / `noreply@example.com`. Kendi adınız ve GitHub e-postanızla değiştirmek için (yalnızca bu repo):
 
 ```bash
 git config user.name "Adınız"
-git config user.email "email@ornek.com"
+git config user.email "sizin@email.com"
 ```
+
+Son commit mesajını değiştirmeden yazarı güncellemek için: `git commit --amend --reset-author --no-edit`
