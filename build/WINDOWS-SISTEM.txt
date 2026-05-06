@@ -1,0 +1,59 @@
+KobiChat — Windows uyumluluğu
+==============================
+
+Yayın sürümü: uygulama ve kurulum dosyası adı, proje kökündeki package.json
+içindeki "version" alanından üretilir. Her dağıtımdan önce sürümü artırın:
+  npm run version:patch
+veya package.json içinde semver (ör. 1.0.2) yazıp kaydedin; ardından derleyin.
+
+Kurulum (NSIS) "tüm kullanıcılar" (makine geneli) için tek yol kullanır; "bu
+bilgisayar için / kimler için" seçeneği gösterilmez. Gerekirse kurulumda
+Yönetici (UAC) onayı istenir.
+
+Bu sürüm, Windows 7 SP1 (64 bit) ile Windows 11 (64 bit) arasındaki
+bilgisayarlarda çalışacak şekilde Electron 22 ile paketlenmiştir.
+
+- 64 bit Windows gerekir (32 bit Windows desteklenmez).
+- Windows 7 kullanıyorsanız en az Service Pack 1 ve güncel yamalar önerilir.
+- Microsoft, Windows 7 için güvenlik güncellemelerini sonlandırmıştır;
+  mümkünse işletim sistemi yükseltmesi düşünün.
+
+Ağdaki farklı bilgisayarlar için tek bir kurulum paketi kullanılabilir;
+tümü 64 bit Windows olmalıdır.
+
+
+Kurulum (.exe) dosyasına çift tıklayınca hiçbir şey olmuyorsa
+-----------------------------------------------------------
+Bu genelde "sistem bozuldu" anlamına gelmez; yaygın nedenler:
+
+1. Windows SmartScreen (imzasız yürütülebilir)
+   - Sağ tık → Özellikler → "Engellemeyi kaldır" kutusu varsa işaretleyip Tamam.
+   - İlk çalıştırmada "Windows bu uygulamayı korudu" uyarısı çıkabilir;
+     "Yine de çalıştır" denmeli. Uyarı başka pencerenin arkasında kalmış
+     olabilir; görev çubuğunda yanıp sönen simgeye bakın.
+
+2. Dosya eksik veya bozuk
+   - İndirme yarım kaldıysa boyut çok küçük olur; paketi yeniden indirin.
+
+3. Üçüncü parti antivirüs
+   - Kurulumu sessizce engelleyebilir; geçici olarak deneyin veya karantinaya
+     düşüp düşmediğine bakın.
+
+4. Yönetici onayı (UAC)
+   - Bazen pencere ekranın arkasında açılır; Alt+Tab ile arayın.
+
+5. Hata görmek için
+   - Win+R → cmd → Kurulum dosyasını sürükleyip Enter (tam yol ile çalışır);
+     veya dosyayı cmd içinde tam yolu yazarak çalıştırın. Konsolda veya
+     Windows Günlükleri (Olay Görüntüleyici → Windows Günlükleri → Uygulama)
+     hata mesajı görünebilir.
+
+6. 32 bit Windows
+   - Bu paket 64 bit içindir; 32 bit sistemde uyumlu çalışmaz.
+
+Geliştirici: yeniden derleme (npm run dist:win)
+---------------------------------------------
+KobiChat veya release\win-unpacked\KobiChat.exe açıksa app.asar kilitlenir ve
+derleme "cannot access the file" hatası verir. Önce uygulamayı kapatın veya
+"npm run clean:release" ile release klasörünü silmeyi deneyin (kilit varsa
+yine başarısız olabilir).

@@ -1,0 +1,105 @@
+{
+  "name": "kobichat",
+  "version": "1.4.7",
+  "private": true,
+  "author": "Mercan Yazılım",
+  "description": "KobiChat — yerel ağ masaüstü sohbet (SQLite, UTF-8, dosya paylaşımı)",
+  "main": "electron/main.cjs",
+  "scripts": {
+    "dev": "concurrently \"vite\" \"wait-on tcp:5173 && electron .\"",
+    "dev:vite": "vite",
+    "dev:browser": "vite",
+    "electron": "electron .",
+    "build": "vite build",
+    "icon:prepare": "node scripts/ensure-icon-size.cjs && node scripts/build-installer-assets.cjs",
+    "start": "node server/chat-server.cjs",
+    "pack": "npm run build && npm run icon:prepare && electron-builder --win dir --x64",
+    "unpacked": "npm run pack",
+    "clean:release": "node scripts/clean-release.cjs",
+    "version:bump": "node scripts/bump-version.cjs",
+    "version:patch": "node scripts/bump-version.cjs",
+    "version:minor": "npm version minor --no-git-tag-version",
+    "test:cluster": "node scripts/cluster-hardening-check.cjs",
+    "setup": "npm run build && npm run icon:prepare && electron-builder --win nsis --x64",
+    "setup:installer": "npm run setup",
+    "dist:win": "npm run build && npm run icon:prepare && electron-builder --win nsis dir --x64"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "express": "^4.21.2",
+    "multer": "^1.4.5-lts.1",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "socket.io": "^4.8.1",
+    "socket.io-client": "^4.8.1",
+    "sql.js": "^1.11.0"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^4.3.3",
+    "concurrently": "^9.1.0",
+    "electron": "22.3.27",
+    "electron-builder": "^25.1.8",
+    "png-to-ico": "^2.1.8",
+    "rcedit": "^5.0.2",
+    "sharp": "^0.34.5",
+    "vite": "^5.4.10",
+    "wait-on": "^8.0.1"
+  },
+  "build": {
+    "appId": "com.mercan.kobichat",
+    "productName": "KobiChat",
+    "directories": {
+      "output": "release",
+      "buildResources": "build"
+    },
+    "asar": true,
+    "electronLanguages": [
+      "en-US",
+      "tr"
+    ],
+    "files": [
+      "dist/web/**/*",
+      "electron/**/*",
+      "server/**/*",
+      "build/icon.png",
+      "package.json",
+      "!**/*.map",
+      "!**/node_modules/**/*.map",
+      "!**/node_modules/**/{README,README.md,readme.md,readme,CHANGELOG,CHANGELOG.md,CHANGELOG,CHANGES,HISTORY,HISTORY.md}"
+    ],
+    "afterPack": "./scripts/after-pack-win-icon.cjs",
+    "icon": "icon.png",
+    "win": {
+      "target": "nsis",
+      "icon": "icon.png",
+      "signAndEditExecutable": false
+    },
+    "nsis": {
+      "include": "build/installer.nsh",
+      "installerSidebar": "installer-sidebar.png",
+      "installerHeader": "installer-header.png",
+      "oneClick": false,
+      "perMachine": true,
+      "allowToChangeInstallationDirectory": true,
+      "installerLanguages": [
+        "tr_TR",
+        "en_US"
+      ],
+      "language": "1055",
+      "allowElevation": true,
+      "deleteAppDataOnUninstall": false,
+      "differentialPackage": false,
+      "warningsAsErrors": false
+    },
+    "extraFiles": [
+      {
+        "from": "build/SUNUCU-KURULUM.txt",
+        "to": "."
+      },
+      {
+        "from": "build/WINDOWS-SISTEM.txt",
+        "to": "."
+      }
+    ]
+  }
+}

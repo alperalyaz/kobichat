@@ -1,0 +1,19 @@
+KobiChat — sunucu bilgisayarı (kurulum sonrası)
+===============================================
+
+Kurulum, Windows Güvenlik Duvarı'nda şu kuralları eklemeyi dener:
+  TCP 3847 — sohbet (HTTP / Socket.IO)
+  UDP 3850 — ağda sunucu otomatik keşfi
+Yönetici izni yoksa bu adımlar başarısız olabilir; gerekirse
+Güvenlik Duvarı'ndan bu portlara izin verin.
+
+Sunucu bilgisayarı: Ayarlar'da "Bu bilgisayarda sunucu çalışsın"
+(yerel sunucu) seçili olsun. Aynı LAN'daki diğer bilgisayarlar
+varsayılan olarak uzak mod + otomatik keşif ile bu sunucuyu bulur;
+elle IP girmeniz gerekmez (keşif çalışmıyorsa Ayarlardan IP girin).
+
+Sunucu veri klasörü (mesajlar, dosyalar) genelde:
+  %AppData%\kobichat\server-data
+
+Sunucuyu başka bir bilgisayara taşımak için bu klasörü yedekleyip
+yeni sunucu PC'de aynı konuma kopyalayabilirsiniz (uygulama kapalıyken).

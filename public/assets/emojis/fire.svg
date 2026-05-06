@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-hidden="true">
+  <defs>
+    <linearGradient id="fireGrad" x1="32" y1="58" x2="32" y2="4" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#BF360C"/>
+      <stop offset="0.38" stop-color="#F4511E"/>
+      <stop offset="0.68" stop-color="#FB8C00"/>
+      <stop offset="0.92" stop-color="#FFD54F"/>
+      <stop offset="1" stop-color="#FFF9C4"/>
+    </linearGradient>
+  </defs>
+  <path fill="url(#fireGrad)" d="M32 6C40 6 46 14 46 24C54 22 58 32 58 42C58 56 48 58 36 58H28C16 58 6 56 6 42C6 32 10 22 18 24C18 14 24 6 32 6Z"/>
+  <path fill="#FFF" opacity="0.28" d="M32 18C38 22 40 28 38 34C36 40 28 40 26 34C24 28 26 22 32 18Z"/>
+</svg>
