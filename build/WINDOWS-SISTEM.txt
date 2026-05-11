@@ -11,7 +11,7 @@ bilgisayar için / kimler için" seçeneği gösterilmez. Gerekirse kurulumda
 Yönetici (UAC) onayı istenir.
 
 Bu sürüm, Windows 7 SP1 (64 bit) ile Windows 11 (64 bit) arasındaki
-bilgisayarlarda çalışacak şekilde Electron 22 ile paketlenmiştir.
+bilgisayarlarda çalışacak şekilde paketlenmiştir.
 
 - 64 bit Windows gerekir (32 bit Windows desteklenmez).
 - Windows 7 kullanıyorsanız en az Service Pack 1 ve güncel yamalar önerilir.

@@ -1,0 +1,18 @@
+{
+  "partnerCenterProduct": "KobiChat",
+  "packageIdentity": {
+    "name": "Hidroteknik.KobiChat",
+    "publisher": "CN=119D3611-306D-4F5E-B28C-3904B4C07374",
+    "publisherDisplayName": "Hidroteknik"
+  },
+  "packageFamily": {
+    "pfn": "Hidroteknik.KobiChat_6pstm0akswvb8",
+    "sid": "S-1-15-2-3314749715-1197785466-4093973579-2364839638-1042313979-1808010388-763414575"
+  },
+  "storeListing": {
+    "storeId": "9N01GLSS1KBJ",
+    "url": "https://apps.microsoft.com/detail/9N01GLSS1KBJ",
+    "protocolLink": "ms-windows-store://pdp/?productid=9N01GLSS1KBJ"
+  },
+  "msaAppId": "2ff5492c-2967-4281-ba4b-17da088254bc"
+}

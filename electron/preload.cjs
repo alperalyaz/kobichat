@@ -3,13 +3,27 @@ const { contextBridge, ipcRenderer } = require("electron");
 contextBridge.exposeInMainWorld("kobiChat", {
   hideMainWindow: () => ipcRenderer.invoke("kobichat:hide-main-window"),
   openChatWindow: (payload) => ipcRenderer.invoke("kobichat:open-chat", payload),
+  openInfoWindow: (options) => ipcRenderer.invoke("kobichat:open-info-window", options),
+  openSettingsWindow: () => ipcRenderer.invoke("kobichat:open-settings-window"),
   openQuickMessagesWindow: () => ipcRenderer.invoke("kobichat:open-quick-messages"),
+  openExternal: (url) => ipcRenderer.invoke("kobichat:open-external", url),
   downloadAndHandle: (payload) => ipcRenderer.invoke("kobichat:download-and-handle", payload),
-  playNotificationSound: () => ipcRenderer.invoke("kobichat:play-notification-sound"),
+  openDownloaded: (payload) => ipcRenderer.invoke("kobichat:open-downloaded", payload),
+  /**
+   * Main process'in renderer'a "şu sesi çal" diye yolladığı sinyali dinler.
+   * Ör. autoUpdater'dan "update-available" geldiğinde.
+   */
+  onPlaySound: (fn) => {
+    const handler = (_e, payload) => fn(payload);
+    ipcRenderer.on("kobichat:play-sound", handler);
+    return () => ipcRenderer.removeListener("kobichat:play-sound", handler);
+  },
   clearAttention: () => ipcRenderer.invoke("kobichat:clear-attention"),
+  flashSelf: () => ipcRenderer.invoke("kobichat:flash-self"),
   refreshTrayMenu: () => ipcRenderer.invoke("kobichat:refresh-tray-menu"),
   getConfig: () => ipcRenderer.invoke("kobichat:config"),
   getAppVersion: () => ipcRenderer.invoke("kobichat:app-version"),
+  checkUpdatesNow: () => ipcRenderer.invoke("kobichat:check-updates-now"),
   getSettings: () => ipcRenderer.invoke("kobichat:settings:get"),
   saveSettings: (partial) => ipcRenderer.invoke("kobichat:settings:save", partial),
   discoverLan: () => ipcRenderer.invoke("kobichat:discover"),
@@ -42,5 +56,28 @@ contextBridge.exposeInMainWorld("kobiChat", {
     const handler = (_e, payload) => fn(payload);
     ipcRenderer.on("kobichat:chat-peer-socket", handler);
     return () => ipcRenderer.removeListener("kobichat:chat-peer-socket", handler);
+  },
+  /** Main process → roster: sohbet penceresi kapandığında openChatPeersRef temizliği */
+  onChatWindowClosed: (fn) => {
+    const handler = (_e, payload) => fn(payload);
+    ipcRenderer.on("kobichat:chat-window-closed", handler);
+    return () => ipcRenderer.removeListener("kobichat:chat-window-closed", handler);
+  },
+  flashMainWindow: () => ipcRenderer.invoke("kobichat:flash-main-window"),
+  /** Sohbet penceresi: bu webContents'in BrowserWindow'unu sallar (roster haritası gerekmez). */
+  attentionShakeSelf: () => ipcRenderer.invoke("kobichat:attention-shake-self"),
+  /** Roster → ana süreç: belirtilen peerClientUuid'ye ait sohbet penceresini doğrudan sallat. */
+  shakeChatWindow: (peerClientUuid) => ipcRenderer.invoke("kobichat:shake-chat-window", peerClientUuid),
+  setWindowTitle: (title) => ipcRenderer.invoke("kobichat:set-chat-window-title", title),
+  onAttentionCssBurst: (fn) => {
+    const handler = () => {
+      try {
+        fn();
+      } catch {
+        // ignored
+      }
+    };
+    ipcRenderer.on("kobichat:attention-css-burst", handler);
+    return () => ipcRenderer.removeListener("kobichat:attention-css-burst", handler);
   }
 });

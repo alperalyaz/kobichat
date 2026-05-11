@@ -1,29 +1,12 @@
 /**
- * Mesaj yazma alanı: SVG emoji (img) + metin; sunucuya Unicode serileştirme.
- * Sistem fontundan bağımsız tutarlı görünüm (Win7 / Win11 vb.).
+ * Mesaj yazma alanı: native Unicode emoji + metin (platform standardı).
  */
-import { emojiFileForChar, parseEmojiSegments } from "./emojiMapper.js";
 
 export function emojiAssetBase() {
   const b = import.meta.env.BASE_URL || "./";
   return b.endsWith("/") ? b : `${b}/`;
 }
 
-function emojiImgSrc(file) {
-  return `${emojiAssetBase()}assets/emojis/${file}`;
-}
-
-function createEmojiImg(char) {
-  const file = emojiFileForChar(char);
-  const img = document.createElement("img");
-  img.className = "inline-emoji composer-inline-emoji";
-  img.src = emojiImgSrc(file);
-  img.alt = "";
-  img.draggable = false;
-  img.setAttribute("contenteditable", "false");
-  img.dataset.emojiChar = char;
-  return img;
-}
 
 /** @param {HTMLElement} root */
 export function serializeComposer(root) {
@@ -163,27 +146,8 @@ export function setCaretSerializedOffset(editorEl, targetOffset) {
 
 /** Bilinen Unicode emoji dizilerini metin düğümlerinde SVG img ile değiştirir. */
 export function normalizeUnicodeEmojiInEditor(editorEl) {
-  if (!editorEl) return;
-  const caret = getCaretSerializedOffset(editorEl);
-  const walker = document.createTreeWalker(editorEl, NodeFilter.SHOW_TEXT, null);
-  const textNodes = [];
-  let n;
-  while ((n = walker.nextNode())) {
-    if (n.parentNode && n.textContent) textNodes.push(n);
-  }
-  for (const tn of textNodes) {
-    if (!tn.parentNode) continue;
-    const segments = parseEmojiSegments(tn.textContent);
-    if (segments.length === 1 && segments[0].type === "text") continue;
-    const frag = document.createDocumentFragment();
-    for (const seg of segments) {
-      if (seg.type === "text") frag.appendChild(document.createTextNode(seg.content));
-      else frag.appendChild(createEmojiImg(seg.char));
-    }
-    tn.parentNode.replaceChild(frag, tn);
-  }
-  const len = serializeComposer(editorEl).length;
-  setCaretSerializedOffset(editorEl, Math.min(caret, len));
+  // Native emoji kullanırken metin düğümlerini img'ye dönüştürmeye gerek yok.
+  void editorEl;
 }
 
 function isComposerEmojiImg(node) {
@@ -287,7 +251,6 @@ export function handleComposerKeyDown(editorEl, e) {
 export function insertEmojiImageAtCaret(editorEl, char) {
   if (!editorEl) return;
   editorEl.focus();
-  const img = createEmojiImg(char);
   const sel = window.getSelection();
   let range = null;
   if (sel.rangeCount) {
@@ -299,8 +262,9 @@ export function insertEmojiImageAtCaret(editorEl, char) {
     range.collapse(false);
   }
   range.deleteContents();
-  range.insertNode(img);
-  range.setStartAfter(img);
+  const node = document.createTextNode(String(char || ""));
+  range.insertNode(node);
+  range.setStartAfter(node);
   range.collapse(true);
   sel.removeAllRanges();
   sel.addRange(range);

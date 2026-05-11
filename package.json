@@ -1,8 +1,8 @@
 {
   "name": "kobichat",
-  "version": "1.4.7",
+  "version": "1.8.1",
   "private": true,
-  "author": "Mercan Yazılım",
+  "author": "Hidroteknik",
   "description": "KobiChat — yerel ağ masaüstü sohbet (SQLite, UTF-8, dosya paylaşımı)",
   "main": "electron/main.cjs",
   "scripts": {
@@ -20,12 +20,18 @@
     "version:patch": "node scripts/bump-version.cjs",
     "version:minor": "npm version minor --no-git-tag-version",
     "test:cluster": "node scripts/cluster-hardening-check.cjs",
+    "test:single-server": "node scripts/single-server-offline-smoke.cjs",
     "setup": "npm run build && npm run icon:prepare && electron-builder --win nsis --x64",
     "setup:installer": "npm run setup",
-    "dist:win": "npm run build && npm run icon:prepare && electron-builder --win nsis dir --x64"
+    "dist:win": "npm run build && npm run icon:prepare && electron-builder --win nsis dir --x64",
+    "release:win": "npm run build && npm run icon:prepare && electron-builder --win nsis --x64 --publish always",
+    "release:win:local": "node scripts/run-release-win.cjs",
+    "clean:release-store": "node scripts/clean-release-store.cjs",
+    "release:store": "node scripts/run-release-store.cjs"
   },
   "dependencies": {
     "cors": "^2.8.5",
+    "electron-updater": "^6.8.3",
     "express": "^4.21.2",
     "multer": "^1.4.5-lts.1",
     "react": "^18.3.1",
@@ -46,10 +52,11 @@
     "wait-on": "^8.0.1"
   },
   "build": {
-    "appId": "com.mercan.kobichat",
+    "appId": "com.hidroteknik.kobichat",
     "productName": "KobiChat",
+    "copyright": "Copyright © Hidroteknik",
     "directories": {
-      "output": "release",
+      "output": "release-build",
       "buildResources": "build"
     },
     "asar": true,
@@ -72,7 +79,20 @@
     "win": {
       "target": "nsis",
       "icon": "icon.png",
-      "signAndEditExecutable": false
+      "signAndEditExecutable": false,
+      "legalTrademarks": "Hidroteknik",
+      "verifyUpdateCodeSignature": false
+    },
+    "appx": {
+      "identityName": "Hidroteknik.KobiChat",
+      "publisher": "CN=119D3611-306D-4F5E-B28C-3904B4C07374",
+      "publisherDisplayName": "Hidroteknik",
+      "displayName": "KobiChat",
+      "electronUpdaterAware": false,
+      "languages": [
+        "tr-TR",
+        "en-US"
+      ]
     },
     "nsis": {
       "include": "build/installer.nsh",
@@ -91,6 +111,14 @@
       "differentialPackage": false,
       "warningsAsErrors": false
     },
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "serkanyavuzmercan-gif",
+        "repo": "kobichat",
+        "releaseType": "release"
+      }
+    ],
     "extraFiles": [
       {
         "from": "build/SUNUCU-KURULUM.txt",
@@ -98,6 +126,10 @@
       },
       {
         "from": "build/WINDOWS-SISTEM.txt",
+        "to": "."
+      },
+      {
+        "from": "build/OTOMATIK-GUNCELLEME.txt",
         "to": "."
       }
     ]

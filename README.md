@@ -34,7 +34,7 @@ gh auth login
 Ardından bu klasörde boş bir repo oluşturup gönderin (`kobichat` adı doluysa başka bir ad verin):
 
 ```bash
-cd d:\MercanYazılım\lan-chat
+cd d:\Hidroteknik\kobichat
 gh repo create kobichat --public --source=. --remote=origin --push
 ```
 
@@ -48,7 +48,7 @@ git branch -M main
 git push -u origin main
 ```
 
-**Not:** Yerel commit yazarı şu an `Mercan Yazılım` / `noreply@example.com`. Kendi adınız ve GitHub e-postanızla değiştirmek için (yalnızca bu repo):
+**Not:** Yerel commit yazarı şu an `Hidroteknik` / `noreply@example.com`. Kendi adınız ve GitHub e-postanızla değiştirmek için (yalnızca bu repo):
 
 ```bash
 git config user.name "Adınız"

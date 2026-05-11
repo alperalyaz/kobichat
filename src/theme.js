@@ -21,8 +21,16 @@ export function applyThemeToDocument(mode) {
   document.documentElement.setAttribute("data-theme", mode === "dark" ? "dark" : "light");
 }
 
+export function normalizeClientUuid(s) {
+  return String(s || "")
+    .trim()
+    .toLowerCase()
+    .slice(0, 80);
+}
+
 export function conversationId(uuidA, uuidB) {
-  const [x, y] = [String(uuidA || ""), String(uuidB || "")].sort();
+  const [x, y] = [normalizeClientUuid(uuidA), normalizeClientUuid(uuidB)].sort();
+  if (!x || !y) return "dm::";
   return `dm:${x}:${y}`;
 }
 
@@ -32,9 +40,9 @@ export function peerClientUuidFromConvId(convId, myClientUuid) {
   const rest = convId.slice(3);
   const idx = rest.indexOf(":");
   if (idx === -1) return "";
-  const a = rest.slice(0, idx).trim();
-  const b = rest.slice(idx + 1).trim();
-  const my = String(myClientUuid || "").trim();
+  const a = normalizeClientUuid(rest.slice(0, idx));
+  const b = normalizeClientUuid(rest.slice(idx + 1));
+  const my = normalizeClientUuid(myClientUuid);
   if (a === my) return b;
   if (b === my) return a;
   return "";

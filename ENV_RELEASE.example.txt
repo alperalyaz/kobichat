@@ -1,0 +1,21 @@
+# Proje kökünde şu ada bir dosya oluşturun:  .env.release
+# Tek satır (örnek):
+#
+# GH_TOKEN=ghp_buraya_token_iniz
+#
+# Ardından: npm run release:win:local
+#
+# "Dosya başka bir işlem tarafından kullanılıyor" hatası:
+#   KobiChat / Electron penceresini kapatın, release\ klasörünü Explorer'dan kapatın.
+#   Sorun devam ederse: Görev Yöneticisi → KobiChat.exe kapatın, sonra yeniden npm run release:win:local
+#
+# --- chat-server.cjs (isteğe bağlı) ---
+# KOBICHAT_MAX_DM_TEXT_CHARS=8000          # DM metin üst sınırı (karakter)
+# KOBICHAT_MAX_QUEUED_PER_RECIPIENT=1000   # Çevrimdışı alıcı başına kuyruk (metin+dosya)
+# KOBICHAT_DM_SEND_BURST=30                # Aynı soket / fromSocketId: pencere içi izin
+# KOBICHAT_DM_SEND_WINDOW_MS=60000         # Yukarıdaki burst için süre (ms), örn. 60 sn
+# KOBICHAT_MESSAGE_RETENTION_DAYS=90       # Metin DM saklama süresi (gün)
+# KOBICHAT_MAX_TEXT_MESSAGES=50000
+# KOBICHAT_FILE_RETENTION_DAYS=7           # Dosya eklerinin diskte saklanma süresi (gün)
+# KOBICHAT_ACK_TIMEOUT_MS=60000            # 'sent' mesajların ack beklemesi (ms); aşılırsa kuyruğa düşürülür
+# KOBICHAT_POKE_MIN_INTERVAL_MS=120000      # Aynı kişiye titreşim (poke) minimum aralık (ms)

@@ -7,7 +7,7 @@ const CLUSTER_SECRET_DEFAULT = "kobichat-cluster-v2-shared";
 const DEFAULTS = {
   displayName: "",
   clientUuid: "",
-  serverMode: "remote",
+  serverMode: "local",
   remoteHost: "",
   remotePort: 3847,
   localPort: 3847,
@@ -15,8 +15,18 @@ const DEFAULTS = {
   presenceStatus: "uygun",
   /** tr | en | de | fr | es — boş: istemci tarayıcı dilinden türetir */
   language: "",
-  /** Sohbet bildirim sesi açık/kapalı */
+  /** Sohbet bildirim sesi ana anahtarı (master switch). */
   notificationSound: true,
+  /**
+   * Kategori bazlı ses anahtarları.
+   * - message: yeni mesaj sesi (gelen + giden)
+   * - file: dosya sesleri (gelen/giden/indirme tamam)
+   * - system: bağlantı, hata, güncelleme sesleri
+   * - presence: birisi online/offline oldu sesleri (varsayılan kapalı — gürültücü olmasın)
+   */
+  soundCategories: { message: true, file: true, system: true, presence: false },
+  /** Tüm seslere uygulanan global ses seviyesi (0..1). */
+  soundVolume: 1,
   /** Kullanıcının profil görseli (data URL) */
   profileImage: "",
   /** Otomatik lider seçimi ve sunucu devri */
@@ -73,7 +83,10 @@ async function openSettingsStore(userDataPath) {
   }
 
   function set(key, value) {
-    db.run("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)", [key, String(value)]);
+    /** Object/array gibi yapısal değerleri JSON olarak yaz; aksi halde primitive stringify. */
+    const serialized =
+      value !== null && typeof value === "object" ? JSON.stringify(value) : String(value);
+    db.run("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)", [key, serialized]);
     saveDb();
   }
 
@@ -96,6 +109,29 @@ async function openSettingsStore(userDataPath) {
     if (k === "notificationSound") {
       if (raw === "false" || raw === "0" || raw === false) return false;
       return true;
+    }
+    if (k === "soundCategories") {
+      let parsed = raw;
+      if (typeof raw === "string") {
+        try {
+          parsed = JSON.parse(raw);
+        } catch {
+          parsed = null;
+        }
+      }
+      const def = DEFAULTS.soundCategories;
+      if (!parsed || typeof parsed !== "object") return { ...def };
+      return {
+        message: parsed.message !== false,
+        file: parsed.file !== false,
+        system: parsed.system !== false,
+        presence: parsed.presence === true
+      };
+    }
+    if (k === "soundVolume") {
+      const n = parseFloat(String(raw));
+      if (!Number.isFinite(n)) return DEFAULTS.soundVolume;
+      return Math.max(0, Math.min(1, n));
     }
     if (k === "presenceStatus") {
       const s = String(raw || "").toLowerCase();
@@ -156,8 +192,14 @@ async function openSettingsStore(userDataPath) {
       set("displayName", out.displayName);
     }
     if (!out.clientUuid || !String(out.clientUuid).trim()) {
-      out.clientUuid = crypto.randomUUID();
+      out.clientUuid = crypto.randomUUID().toLowerCase();
       set("clientUuid", out.clientUuid);
+    } else {
+      const lo = String(out.clientUuid).trim().toLowerCase();
+      if (lo !== String(out.clientUuid).trim()) {
+        out.clientUuid = lo;
+        set("clientUuid", lo);
+      }
     }
     if (!out.nodeId || !String(out.nodeId).trim()) {
       out.nodeId = crypto.randomUUID();

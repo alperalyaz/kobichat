@@ -1,1 +1,6 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 3 2"><rect width="3" height="2" fill="#E30A17"/><circle cx="1.0625" cy="1" r="0.5" fill="#fff"/><circle cx="1.1875" cy="1" r="0.5" fill="#E30A17"/><path fill="#fff" d="M1.0375 1L1.3139.9102 1.3139.6196 1.4847.8547 1.7611.7649 1.5903 1 1.7611 1.2351 1.4847 1.1453 1.3139 1.3804 1.3139 1.0898z"/></svg>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 600">
+  <rect width="900" height="600" fill="#e30a17"/>
+  <circle cx="378" cy="300" r="162" fill="#fff"/>
+  <circle cx="423" cy="300" r="129.6" fill="#e30a17"/>
+  <polygon fill="#fff" points="541.8,300 620.7,325.6 620.7,408.5 669.5,341.5 748.3,367.1 699.5,300 748.3,232.9 669.5,258.5 620.7,191.5 620.7,274.4"/>
+</svg>

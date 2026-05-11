@@ -1,10 +1,9 @@
 const path = require("path");
 const fs = require("fs");
-const dgram = require("dgram");
 const os = require("os");
 const http = require("http");
 const https = require("https");
-const { createHmac } = require("crypto");
+const { randomUUID } = require("crypto");
 const {
   app,
   BrowserWindow,
@@ -17,67 +16,506 @@ const {
   shell,
   screen
 } = require("electron");
-const { createChatServer, DEFAULT_PORT, DISCOVERY_UDP_PORT } = require("../server/chat-server.cjs");
+const { createChatServer, DEFAULT_PORT } = require("../server/chat-server.cjs");
 const { openSettingsStore } = require("./settings-store.cjs");
-const CLUSTER_ID_DEFAULT = "kobichat-lan-v2";
-const CLUSTER_SECRET_DEFAULT = "kobichat-cluster-v2-shared";
+const { autoUpdater } = require("electron-updater");
+
+/**
+ * Chromium'un autoplay politikasını devre dışı bırak; bu sayede tray'e
+ * küçültülmüş veya arka plandaki bir pencere bile Audio API ile ses çalabilir.
+ * Ayar app.whenReady()'den ÖNCE çağrılmalıdır.
+ */
+app.commandLine.appendSwitch("autoplay-policy", "no-user-gesture-required");
 
 /** @type {BrowserWindow | null} */
 let mainWindow = null;
 /** @type {Map<string, BrowserWindow>} peerClientUuid → sohbet penceresi (socket id değişse bile tek pencere) */
 const chatWindowsByClientUuid = new Map();
+
+/** Renderer `theme.js` ile aynı kurallar — harita anahtarı tutarlı olsun. */
+function peerWindowKey(raw) {
+  return String(raw || "")
+    .trim()
+    .toLowerCase()
+    .slice(0, 80);
+}
+
 /** @type {Tray | null} */
 let tray = null;
 /** @type {BrowserWindow | null} */
-let aboutWindow = null;
+let infoWindow = null;
 /** @type {BrowserWindow | null} */
 let quickMessagesWindow = null;
+/** @type {BrowserWindow | null} */
+let settingsWindow = null;
 /** @type {ReturnType<createChatServer> | null} */
 let chatInstance = null;
 /** @type {ReturnType<openSettingsStore> | null} */
 let settingsStore = null;
 let appQuitting = false;
-const CLUSTER_CTRL_UDP_PORT = 3851;
-let clusterSock = null;
-let clusterTicker = null;
-let clusterTerm = 0;
-let clusterRole = "follower";
-let clusterLeader = null;
-let clusterLeaseUntil = 0;
-let clusterBootAt = Date.now();
-let clusterElectionAt = Date.now() + 3500;
-const clusterPeers = new Map();
-let appliedLeaderKey = "";
 let lastServerErrorKey = "";
 let lastServerErrorAt = 0;
+let updatePromptOpen = false;
+/** Bildirilen başlangıç taramasında ek diyalog çıkmasın; yalnızca tepsi/ayarlardan elle kontrol. */
+let updaterUiSilent = true;
+/** Titreşim (poke) — yalnızca ilgili sohbet penceresi; çift tetiklemeyi sınırlar. */
+let lastAttentionShakeAt = 0;
+/** Görev çubuğu yanıp sönme döngüleri — pencere odaklanınca iptal edilir. */
+const taskbarPulseStateByWinId = new Map();
 
-function isAddrInUseError(err) {
-  const msg = String(err?.message || err || "");
-  return msg.includes("EADDRINUSE") || msg.includes("address already in use");
+function stopTaskbarPulse(win) {
+  if (!win || win.isDestroyed()) return;
+  const state = taskbarPulseStateByWinId.get(win.id);
+  if (state?.timer) {
+    clearTimeout(state.timer);
+  }
+  taskbarPulseStateByWinId.delete(win.id);
+  try {
+    win.flashFrame(false);
+  } catch {
+    // ignored
+  }
+}
+
+/**
+ * Windows görev çubuğunda sürekli yanıp söndürür.
+ * Kullanıcı pencereye tıklayıp odaklanana kadar durmaz.
+ */
+function pulseTaskbarFlash(win, options = {}) {
+  if (!win || win.isDestroyed()) return;
+  if (win.isFocused()) return;
+
+  const onMs = Math.max(120, Number(options.onMs) || 380);
+  const offMs = Math.max(80, Number(options.offMs) || 320);
+
+  stopTaskbarPulse(win);
+
+  const state = { timer: null };
+  taskbarPulseStateByWinId.set(win.id, state);
+
+  const finish = () => {
+    stopTaskbarPulse(win);
+  };
+
+  const step = () => {
+    if (win.isDestroyed() || win.isFocused()) {
+      finish();
+      return;
+    }
+    try {
+      win.flashFrame(true);
+    } catch {
+      finish();
+      return;
+    }
+    state.timer = setTimeout(() => {
+      if (win.isDestroyed() || win.isFocused()) {
+        finish();
+        return;
+      }
+      try {
+        win.flashFrame(false);
+      } catch {
+        // ignored
+      }
+      state.timer = setTimeout(step, offMs);
+    }, onMs);
+  };
+
+  step();
+}
+
+/**
+ * IPC'yi çağıran BrowserWindow'u kısa süre OS düzeyinde sallar.
+ * Yalnızca sohbet renderer'ından `attentionShakeSelf` ile tetiklenmeli (roster değil).
+ */
+function runAttentionShakeOnWindow(win) {
+  if (!win || win.isDestroyed()) return;
+
+  const now = Date.now();
+  if (now - lastAttentionShakeAt < 850) return;
+
+  let b;
+  try {
+    b = win.getBounds();
+  } catch {
+    return;
+  }
+
+  lastAttentionShakeAt = now;
+  const snapshots = [{ w: win, b }];
+
+  for (const { w } of snapshots) {
+    try {
+      if (w.isMinimized()) w.restore();
+      w.show();
+      w.moveTop();
+    } catch {
+      // ignored
+    }
+  }
+  try {
+    win.focus();
+  } catch {
+    // ignored
+  }
+
+  let step = 0;
+  const maxSteps = 18;
+  const timer = setInterval(() => {
+    if (step >= maxSteps) {
+      clearInterval(timer);
+      for (const { w, b } of snapshots) {
+        try {
+          w.setBounds(b);
+        } catch {
+          // ignored
+        }
+      }
+      return;
+    }
+    const amp = (step % 2 === 0 ? 1 : -1) * (19 + (step % 5));
+    const ampY = (step % 2 === 0 ? -1 : 1) * (12 + (step % 3));
+    const grow = step % 6 < 2 ? 22 : step % 6 < 4 ? -18 : 0;
+    for (const { w, b } of snapshots) {
+      try {
+        w.setBounds({
+          x: b.x + amp,
+          y: b.y + ampY,
+          width: Math.max(360, b.width + grow),
+          height: Math.max(280, b.height - Math.round(grow * 0.3))
+        });
+      } catch {
+        // ignored
+      }
+    }
+    step++;
+  }, 68);
+}
+
+/**
+ * Gelen poke: pencere odakta değilse görev çubuğunda yanıp söndür; odaktaysa OS sallaması.
+ */
+function applyIncomingPokeAttentionToChatWindow(win) {
+  if (!win || win.isDestroyed()) return false;
+
+  let needsTaskbarFlash = false;
+  try {
+    needsTaskbarFlash = !win.isFocused() || win.isMinimized() || !win.isVisible();
+  } catch {
+    needsTaskbarFlash = true;
+  }
+
+  if (needsTaskbarFlash) {
+    try {
+      if (win.isMinimized()) {
+        win.restore();
+      }
+      if (!win.isVisible()) {
+        if (typeof win.showInactive === "function") {
+          win.showInactive();
+        } else {
+          win.show();
+        }
+      }
+      if (!win.isFocused()) {
+        win.flashFrame(true);
+      }
+    } catch {
+      // ignored
+    }
+  } else {
+    runAttentionShakeOnWindow(win);
+  }
+
+  try {
+    win.webContents.send("kobichat:attention-css-burst");
+  } catch {
+    // ignored
+  }
+  return true;
+}
+
+let updaterTooltipBase = "";
+const MANUAL_UPDATE_MIN_INTERVAL_MS = 30 * 1000;
+let lastManualUpdateCheckAt = 0;
+let suppressInfoBlurCloseUntil = 0;
+let infoBlurCloseTimer = null;
+let infoPartyActive = false;
+let ignoreInfoMoveUntil = 0;
+let lastInfoMoveSample = null;
+
+process.on("uncaughtException", (err) => {
+  console.error("uncaughtException:", err);
+  try {
+    const m = String(err?.message || err || "Bilinmeyen hata");
+    dialog.showErrorBox("Beklenmeyen hata", m);
+  } catch {
+    // ignored
+  }
+});
+
+process.on("unhandledRejection", (reason) => {
+  console.error("unhandledRejection:", reason);
+  try {
+    const m = String(reason?.message || reason || "Bilinmeyen hata");
+    dialog.showErrorBox("Beklenmeyen hata", m);
+  } catch {
+    // ignored
+  }
+});
+
+function readDefaultPublishFromPackageJson() {
+  try {
+    const p = path.join(__dirname, "..", "package.json");
+    if (!fs.existsSync(p)) return null;
+    const pj = JSON.parse(fs.readFileSync(p, "utf8"));
+    const pub = pj?.build?.publish?.[0];
+    const provider = String(pub?.provider || "").toLowerCase();
+    if (provider === "github" && pub.owner && pub.repo) {
+      return { provider: "github", owner: String(pub.owner), repo: String(pub.repo) };
+    }
+    if (provider === "generic" && typeof pub.url === "string" && pub.url.trim()) {
+      return { provider: "generic", url: String(pub.url).trim() };
+    }
+  } catch (e) {
+    console.error("readDefaultPublishFromPackageJson:", e?.message || e);
+  }
+  return null;
+}
+
+/** İnsana okunur metin; 404 + yanıltıcı "token" cümlesi için kısa açıklama. */
+function formatUpdaterUserError(err) {
+  const raw = String(err?.message || err || "Bilinmeyen hata");
+
+  if (/not signed by the application owner/i.test(raw) || /not digitally signed/i.test(raw)) {
+    return [
+      `Otomatik güncelleme imza doğrulaması nedeniyle uygulanamadı.`,
+      ``,
+      `Kurulu sürümünüz imzalı güncelleme bekliyor, ancak yeni sürüm imzasız.`,
+      `Lütfen yeni sürümü elle (manuel) kurun; sonraki güncellemeler otomatik çalışacaktır.`,
+      ``,
+      `Teknik: ${raw}`
+    ].join("\n");
+  }
+
+  const feedLooksMissing = /releases(?:\.atom)?/i.test(raw);
+  const code404 = /\b404\b/.test(raw);
+  if (code404 && feedLooksMissing) {
+    return [
+      `Güncelleme adresine ulaşılamadı (404).`,
+      ``,
+      `Genelde nedeni şunlardan biri:`,
+      `• Güncelleme adresi yanlış ya da yayın henüz eklenmedi.`,
+      `• Güncelleme dosyalarına ağdan erişim yok.`,
+      `• Sunucu tarafında sürüm yayınlanmadı veya kaldırıldı.`,
+      ``,
+      `Not: Kurulu uygulama "token" taşımaz; hata metnindeki bu ifade bazen yanıltıcıdır.`,
+      ``,
+      `Teknik: ${raw}`
+    ].join("\n");
+  }
+  if (/authentication token is correct/i.test(raw) && code404) {
+    return (
+      `Güncelleme sunucusuna erişilemedi (404).\n\n` +
+        `Bu hata sık sık yanlış "token" metni ile gelir; asıl işlem adresi yanlış veya depoya erişim yok demektir.\n\n` +
+        `${raw}`
+    );
+  }
+  return raw;
+}
+
+/**
+ * Renderer pencerelerine "şu sesi çal" sinyali yollar.
+ * `src/sounds.js` modülü `onPlaySound` ile dinler ve kategori/master ayarlarına göre çalar.
+ */
+function broadcastPlaySound(name) {
+  const trimmed = String(name || "").trim();
+  if (!trimmed) return;
+  for (const w of BrowserWindow.getAllWindows()) {
+    if (!w.isDestroyed()) {
+      try {
+        w.webContents.send("kobichat:play-sound", { name: trimmed });
+      } catch {
+        // ignored
+      }
+    }
+  }
+}
+
+function readPackagedDistribution() {
+  try {
+    const pjPath = path.join(app.getAppPath(), "package.json");
+    const pj = JSON.parse(fs.readFileSync(pjPath, "utf8"));
+    return String(pj.kobichatDistribution || "").trim().toLowerCase();
+  } catch {
+    return "";
+  }
+}
+
+function isMicrosoftStoreDistribution() {
+  return readPackagedDistribution() === "store";
+}
+
+function configureAutoUpdaterFeed() {
+  if (!app.isPackaged) return;
+  try {
+    const feed = readDefaultPublishFromPackageJson();
+    if (!feed) return;
+    autoUpdater.setFeedURL(feed);
+  } catch (e) {
+    console.error("configureAutoUpdaterFeed:", e?.message || e);
+  }
+}
+
+function applyTrayPresenceTooltip(presenceKey) {
+  if (!tray || tray.isDestroyed()) return;
+  const key = presenceKey != null ? presenceKey : settingsStore.getAll().presenceStatus || "uygun";
+  updaterTooltipBase = `KobiChat — ${trayPresenceKeyToLabel(key)}`;
+  tray.setToolTip(updaterTooltipBase);
+}
+
+function setTrayUpdaterProgress(pct) {
+  if (!tray || tray.isDestroyed()) return;
+  if (pct == null) {
+    applyTrayPresenceTooltip();
+    return;
+  }
+  const base = updaterTooltipBase || "KobiChat";
+  tray.setToolTip(`${base} — güncelleme indiriliyor ~${Math.round(pct)}%`);
+}
+
+function setupAutoUpdater() {
+  if (!app.isPackaged) return;
+  if (isMicrosoftStoreDistribution()) return;
+
+  /**
+   * Windows: `build.win.publisherName` varken electron-updater varsayılan olarak
+   * indirilen kurucunun Authenticode imzasını doğrular. Kurulum imzalanmıyorsa
+   * (`signAndEditExecutable: false`) doğrulama hep başarısız olur.
+   * `package.json` → `build.win.verifyUpdateCodeSignature` da app-update.yml ile paketlenir;
+   * burada da feed'den önce kapatıyoruz (bazı sürümlerde sıra önemli).
+   */
+  autoUpdater.verifyUpdateCodeSignature = false;
+
+  configureAutoUpdaterFeed();
+
+  autoUpdater.autoDownload = true;
+  autoUpdater.autoInstallOnAppQuit = true;
+
+  autoUpdater.on("error", (err) => {
+    console.error("autoUpdater error:", err?.message || err);
+    setTrayUpdaterProgress(null);
+    if (!updaterUiSilent) {
+      updaterUiSilent = true;
+      try {
+        dialog.showErrorBox("Güncelleme hatası", formatUpdaterUserError(err));
+      } catch {
+        // ignored
+      }
+    }
+  });
+
+  autoUpdater.on("update-available", (info) => {
+    console.log("Güncelleme bulundu:", info?.version || "?");
+    /** Renderer tarafına bildirim sesi çalması için sinyal yolla. */
+    broadcastPlaySound("updateAvailable");
+    if (!updaterUiSilent) {
+      updaterUiSilent = true;
+      void dialog
+        .showMessageBox({
+          type: "info",
+          title: "KobiChat",
+          message: `Yeni sürüm ${info?.version || "?"} bulundu.`,
+          detail: "Arka planda indiriliyor; bittiğinde yeniden başlatmanız istenecek.",
+          buttons: ["Tamam"],
+          noLink: true
+        })
+        .catch(() => {});
+    }
+  });
+
+  autoUpdater.on("update-not-available", () => {
+    if (!updaterUiSilent) {
+      updaterUiSilent = true;
+      void dialog
+        .showMessageBox({
+          type: "info",
+          title: "KobiChat",
+          message: "Yüklü sürüm güncel.",
+          buttons: ["Tamam"],
+          noLink: true
+        })
+        .catch(() => {});
+    }
+  });
+
+  autoUpdater.on("download-progress", (p) => {
+    if (typeof p?.percent === "number") setTrayUpdaterProgress(p.percent);
+  });
+
+  autoUpdater.on("update-downloaded", async (info) => {
+    setTrayUpdaterProgress(null);
+    if (updatePromptOpen) return;
+    updatePromptOpen = true;
+    try {
+      const res = await dialog.showMessageBox({
+        type: "info",
+        title: "Güncelleme hazır",
+        message: `KobiChat ${info?.version || "yeni sürüm"} indirildi.`,
+        detail: "Şimdi yeniden başlatıp güncellemeyi yüklemek ister misiniz?",
+        buttons: ["Yeniden başlat ve güncelle", "Sonra"],
+        defaultId: 0,
+        cancelId: 1,
+        noLink: true
+      });
+      if (res.response === 0) {
+        setImmediate(() => autoUpdater.quitAndInstall());
+      }
+    } catch (e) {
+      console.error("update-downloaded prompt:", e);
+    } finally {
+      updatePromptOpen = false;
+    }
+  });
+
+  const checkNow = () => {
+    autoUpdater.checkForUpdates().catch((e) => {
+      console.error("checkForUpdates:", e?.message || e);
+    });
+  };
+  setTimeout(checkNow, 15000);
+  setInterval(checkNow, 6 * 60 * 60 * 1000);
+}
+
+function runManualUpdateCheck() {
+  if (!app.isPackaged) return { ok: false, reason: "not-packaged" };
+  if (isMicrosoftStoreDistribution()) return { ok: false, reason: "store-distribution" };
+  const now = Date.now();
+  const retryAfterMs = MANUAL_UPDATE_MIN_INTERVAL_MS - (now - lastManualUpdateCheckAt);
+  if (retryAfterMs > 0) {
+    return { ok: false, throttled: true, retryAfterMs };
+  }
+  lastManualUpdateCheckAt = now;
+  configureAutoUpdaterFeed();
+  updaterUiSilent = false;
+  autoUpdater.checkForUpdates().catch((e) => {
+    console.error("checkForUpdates (manuel):", e?.message || e);
+    updaterUiSilent = true;
+    // Hata için iletişim kutusu autoUpdater "error" olayında (formatUpdaterUserError) gösterilir; çift uyarı yapma.
+  });
+  return { ok: true };
 }
 
 function normalizeSettingsForVersion(currentVersion) {
   if (!settingsStore) return;
   const st = settingsStore.getAll();
   if (String(st.lastRunVersion || "") === String(currentVersion || "")) return;
-  // Yeni sürümde eski bağlantı/küme tercihleri davranışı etkilemesin.
+  // Sürüm geçişinde kullanıcı bağlantı tercihlerini KORU.
+  // Önceki sürümlerde burada serverMode/localPort zorla resetleniyordu.
   settingsStore.save({
-    serverMode: "remote",
-    remoteHost: "",
-    remotePort: DEFAULT_PORT,
-    localPort: DEFAULT_PORT,
-    clusterMode: true,
-    clusterId: CLUSTER_ID_DEFAULT,
-    nodeId: "",
-    sharedSecret: CLUSTER_SECRET_DEFAULT,
     lastRunVersion: String(currentVersion || "")
   });
-}
-
-function signCluster(payload, secret) {
-  return createHmac("sha256", String(secret || ""))
-    .update(JSON.stringify(payload || {}))
-    .digest("hex");
 }
 
 function distWebPath() {
@@ -108,15 +546,14 @@ function loadTrayImage() {
 
 function buildConfig() {
   const s = settingsStore.getAll();
-  const clusterMode = Boolean(s.clusterMode);
-  const isLocal = s.serverMode === "local";
-  let port = isLocal ? s.localPort : s.remotePort;
-  let host = isLocal ? "127.0.0.1" : s.remoteHost.trim() || "127.0.0.1";
-  if (clusterMode && clusterLeader?.host && clusterLeader?.port) {
-    host = clusterLeader.host;
-    port = clusterLeader.port;
-  }
-  const socketUrl = `http://${host}:${port}`;
+  const localPort = Number(s.localPort) || DEFAULT_PORT;
+  const remotePort = Number(s.remotePort) || DEFAULT_PORT;
+  /** Tek merkezi sunucu: uzak modda tüm istemciler `remoteHost:remotePort` adresine bağlanır. */
+  const isRemote = String(s.serverMode || "local").toLowerCase() === "remote";
+  const remoteHost = String(s.remoteHost || "").trim();
+  const socketUrl = isRemote && remoteHost
+    ? `http://${remoteHost}:${remotePort}`
+    : `http://127.0.0.1:${localPort}`;
   return {
     socketUrl,
     displayName: s.displayName,
@@ -125,19 +562,15 @@ function buildConfig() {
     localPort: s.localPort,
     remoteHost: s.remoteHost,
     remotePort: s.remotePort,
+    /** Uzak sunucu tabanı (socket.io); yerel modda 127.0.0.1 + localPort */
+    centralSocketUrl: socketUrl,
     presenceStatus: s.presenceStatus || "uygun",
     language: s.language || "",
     notificationSound: s.notificationSound !== false,
+    soundCategories: s.soundCategories || { message: true, file: true, system: true, presence: false },
+    soundVolume: typeof s.soundVolume === "number" ? s.soundVolume : 1,
     profileImage: s.profileImage || "",
-    hostname: os.hostname(),
-    clusterMode,
-    clusterId: s.clusterId || "kobichat-lan",
-    nodeId: s.nodeId || "",
-    leaderNodeId: clusterLeader?.nodeId || "",
-    leaderSocketUrl: clusterLeader?.host && clusterLeader?.port ? `http://${clusterLeader.host}:${clusterLeader.port}` : "",
-    clusterRole,
-    clusterTerm,
-    clusterLeaseUntil
+    hostname: os.hostname()
   };
 }
 
@@ -152,211 +585,6 @@ function broadcastConfig() {
       }
     }
   }
-}
-
-function localLanHost() {
-  const nets = os.networkInterfaces();
-  for (const name of Object.keys(nets)) {
-    for (const net of nets[name]) {
-      if (net.family === "IPv4" && !net.internal) return net.address;
-    }
-  }
-  return "127.0.0.1";
-}
-
-function clusterScore(term, bootAt, nodeId) {
-  return `${String(term).padStart(12, "0")}:${String(9999999999999 - bootAt).padStart(13, "0")}:${nodeId}`;
-}
-
-function hasAnyValidPeer(now = Date.now()) {
-  for (const p of clusterPeers.values()) {
-    if ((Number(p.leaseUntil) || 0) > now) return true;
-  }
-  return false;
-}
-
-function computeClusterLeader(s) {
-  const candidates = [];
-  const now = Date.now();
-  if (clusterLeaseUntil > now && s.nodeId) {
-    candidates.push({
-      nodeId: s.nodeId,
-      term: clusterTerm,
-      bootAt: clusterBootAt,
-      host: localLanHost(),
-      port: s.localPort || DEFAULT_PORT,
-      leaseUntil: clusterLeaseUntil
-    });
-  }
-  for (const p of clusterPeers.values()) {
-    if (!p.nodeId || !p.host || !p.port) continue;
-    if ((Number(p.leaseUntil) || 0) <= now) continue;
-    candidates.push(p);
-  }
-  candidates.sort((a, b) => {
-    const as = clusterScore(a.term || 0, a.bootAt || now, a.nodeId || "");
-    const bs = clusterScore(b.term || 0, b.bootAt || now, b.nodeId || "");
-    return as > bs ? -1 : as < bs ? 1 : 0;
-  });
-  return candidates[0] || null;
-}
-
-async function applyClusterLeaderToSettings() {
-  if (!settingsStore) return;
-  const s = settingsStore.getAll();
-  if (!s.clusterMode) return;
-  const leader = computeClusterLeader(s);
-  clusterLeader = leader;
-  if (leader?.nodeId === s.nodeId) {
-    clusterRole = "leader";
-    clusterLeaseUntil = Date.now() + 4200;
-  } else {
-    clusterRole = "follower";
-  }
-  if (leader?.host && leader?.port) {
-    const mode = leader.nodeId === s.nodeId ? "local" : "remote";
-    const key = `${mode}|${leader.host}|${leader.port}|${leader.nodeId}`;
-    settingsStore.save({
-      serverMode: leader.nodeId === s.nodeId ? "local" : "remote",
-      remoteHost: leader.host,
-      remotePort: leader.port
-    });
-    if (appliedLeaderKey !== key) {
-      appliedLeaderKey = key;
-      await applyServerMode();
-    }
-  }
-}
-
-function stopClusterCoordinator() {
-  if (clusterTicker) {
-    clearInterval(clusterTicker);
-    clusterTicker = null;
-  }
-  if (clusterSock) {
-    try {
-      clusterSock.close();
-    } catch {
-      // ignored
-    }
-    clusterSock = null;
-  }
-}
-
-function startClusterCoordinator() {
-  if (!settingsStore) return;
-  const s = settingsStore.getAll();
-  if (!s.clusterMode) {
-    stopClusterCoordinator();
-    return;
-  }
-  stopClusterCoordinator();
-  clusterBootAt = Date.now();
-  clusterRole = "leader";
-  clusterTerm = Math.max(clusterTerm, 1);
-  clusterLeaseUntil = Date.now() + 4200;
-  clusterElectionAt = Date.now() + 20000;
-  clusterPeers.clear();
-  clusterSock = dgram.createSocket({ type: "udp4", reuseAddr: true });
-  clusterSock.on("error", () => {});
-  clusterSock.on("message", async (buf, rinfo) => {
-    try {
-      const m = JSON.parse(buf.toString());
-      if (m?.t !== "kobichat-cluster" || Number(m.v) !== 1) return;
-      if (String(m.clusterId || "") !== String(s.clusterId || "")) return;
-      const advertisedHost = String(m.host || "");
-      const body = {
-        t: m.t,
-        v: Number(m.v),
-        clusterId: String(m.clusterId || ""),
-        nodeId: String(m.nodeId || ""),
-        role: String(m.role || ""),
-        term: Number(m.term) || 0,
-        leaseUntil: Number(m.leaseUntil) || 0,
-        host: advertisedHost,
-        port: Number(m.port) || 0,
-        bootAt: Number(m.bootAt) || 0,
-        ts: Number(m.ts) || 0
-      };
-      if (s.sharedSecret && signCluster(body, s.sharedSecret) !== String(m.signature || "")) return;
-      const observedHost = String(rinfo?.address || "").trim();
-      if (observedHost && observedHost !== "0.0.0.0") {
-        body.host = observedHost;
-      }
-      if (!body.nodeId || body.nodeId === s.nodeId) return;
-      clusterPeers.set(body.nodeId, body);
-      if (body.term > clusterTerm) {
-        clusterTerm = body.term;
-        clusterRole = "follower";
-      }
-      const leader = computeClusterLeader(s);
-      const prevLeader = clusterLeader?.nodeId || "";
-      clusterLeader = leader;
-      if (leader?.nodeId !== prevLeader) {
-        await applyClusterLeaderToSettings();
-        broadcastConfig();
-      }
-    } catch {
-      // ignored
-    }
-  });
-  clusterSock.bind(CLUSTER_CTRL_UDP_PORT, "0.0.0.0", () => {
-    try {
-      clusterSock.setBroadcast(true);
-    } catch {
-      // ignored
-    }
-  });
-
-  clusterTicker = setInterval(async () => {
-    if (!settingsStore) return;
-    const st = settingsStore.getAll();
-    if (!st.clusterMode) return;
-    const now = Date.now();
-    for (const [id, p] of clusterPeers.entries()) {
-      if ((Number(p.leaseUntil) || 0) + 1500 < now) clusterPeers.delete(id);
-    }
-    const leader = computeClusterLeader(st);
-    const peersPresent = hasAnyValidPeer(now);
-    if (!leader || leader.leaseUntil <= now) {
-      clusterTerm += 1;
-      clusterRole = "leader";
-      clusterLeaseUntil = now + 4200;
-      clusterElectionAt = now + 3500 + Math.floor(Math.random() * 1200);
-    } else if (leader.nodeId !== st.nodeId && peersPresent) {
-      clusterRole = "follower";
-      clusterLeaseUntil = now + 1200;
-    } else {
-      clusterRole = "leader";
-      clusterLeaseUntil = now + 4200;
-    }
-
-    const body = {
-      t: "kobichat-cluster",
-      v: 1,
-      clusterId: String(st.clusterId || ""),
-      nodeId: String(st.nodeId || ""),
-      role: clusterRole,
-      term: clusterTerm,
-      leaseUntil: clusterLeaseUntil,
-      host: localLanHost(),
-      port: Number(st.localPort) || DEFAULT_PORT,
-      bootAt: clusterBootAt,
-      ts: now
-    };
-    const pkt = {
-      ...body,
-      signature: st.sharedSecret ? signCluster(body, st.sharedSecret) : ""
-    };
-    const msg = Buffer.from(JSON.stringify(pkt));
-    try {
-      clusterSock.send(msg, CLUSTER_CTRL_UDP_PORT, "255.255.255.255", () => {});
-    } catch {
-      // ignored
-    }
-    await applyClusterLeaderToSettings();
-    broadcastConfig();
-  }, 1200);
 }
 
 const ROSTER_SCREEN_MARGIN = 12;
@@ -392,150 +620,23 @@ function trayPresenceKeyToLabel(key) {
   return "Uygun";
 }
 
-function escapeAboutHtml(s) {
-  return String(s)
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
+function openDevToolsWhenReady(win) {
+  if (app.isPackaged || !win || win.isDestroyed()) return;
+  win.webContents.once("did-finish-load", () => {
+    if (!win.isDestroyed()) {
+      win.webContents.openDevTools({ mode: "detach" });
+    }
+  });
 }
 
-function buildAboutPageHtml() {
-  const ver = escapeAboutHtml(app.getVersion());
-  const year = new Date().getFullYear();
-  const tagline = "Yerel ağ masaüstü sohbet ve dosya paylaşım uygulaması";
-  return `<!DOCTYPE html>
-<html lang="tr">
-<head>
-<meta charset="utf-8"/>
-<meta name="viewport" content="width=device-width, initial-scale=1"/>
-<title>KobiChat — Bilgi</title>
-<style>
-  * { box-sizing: border-box; }
-  body {
-    margin: 0;
-    padding: 16px 18px 14px;
-    font-family: system-ui, "Segoe UI", sans-serif;
-    background: #0f172a;
-    color: #e2e8f0;
-    font-size: 14px;
-    line-height: 1.45;
-    -webkit-font-smoothing: antialiased;
+function removeDefaultWindowMenu(win) {
+  if (!win || win.isDestroyed()) return;
+  try {
+    win.setMenu(null);
+    win.setAutoHideMenuBar(true);
+  } catch {
+    // Menü kaldırma bazı platformlarda desteklenmeyebilir.
   }
-  h1 {
-    margin: 0 0 4px;
-    font-size: 1.35rem;
-    font-weight: 700;
-    letter-spacing: -0.02em;
-  }
-  .tag {
-    font-size: 0.85rem;
-    color: #94a3b8;
-    margin: 0 0 10px;
-  }
-  .row { margin-bottom: 8px; }
-  dt {
-    font-size: 0.72rem;
-    font-weight: 600;
-    color: #64748b;
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
-    margin-bottom: 2px;
-  }
-  dd { margin: 0; color: #e2e8f0; }
-  a { color: #38bdf8; text-decoration: none; }
-  a:hover { text-decoration: underline; }
-  .footer {
-    margin-top: 10px;
-    padding-top: 10px;
-    border-top: 1px solid #334155;
-    font-size: 0.78rem;
-    color: #94a3b8;
-    line-height: 1.5;
-  }
-  .shortcut {
-    margin-top: 4px;
-  }
-</style>
-</head>
-<body>
-  <h1>KobiChat</h1>
-  <p class="tag">${escapeAboutHtml(tagline)}</p>
-  <dl>
-    <div class="row">
-      <dt>Sürüm</dt>
-      <dd>${ver}</dd>
-    </div>
-    <div class="row">
-      <dt>Yıl</dt>
-      <dd>${year}</dd>
-    </div>
-    <div class="row">
-      <dt>Telif hakkı</dt>
-      <dd>© ${year} Mercan Yazılım. Tüm hakları saklıdır.</dd>
-    </div>
-    <div class="row">
-      <dt>Teknik destek</dt>
-      <dd><a href="mailto:serkanyavuzmercan@gmail.com">serkanyavuzmercan@gmail.com</a></dd>
-    </div>
-    <div class="row">
-      <dt>Kısa yollar</dt>
-      <dd class="shortcut">Ctrl + Shift + K ile çevrimiçi liste açılır.</dd>
-    </div>
-  </dl>
-  <div class="footer">
-    Bu uygulama yerel ağ üzerinden çalışır. Sorun ve önerileriniz için yukarıdaki e-posta ile iletişime geçebilirsiniz.
-  </div>
-</body>
-</html>`;
-}
-
-function openAboutWindow() {
-  if (aboutWindow && !aboutWindow.isDestroyed()) {
-    aboutWindow.focus();
-    return;
-  }
-  const parent = mainWindow && !mainWindow.isDestroyed() ? mainWindow : undefined;
-  aboutWindow = new BrowserWindow({
-    width: 400,
-    height: 460,
-    minWidth: 400,
-    maxWidth: 400,
-    minHeight: 460,
-    maxHeight: 460,
-    resizable: false,
-    maximizable: false,
-    show: false,
-    parent,
-    modal: Boolean(parent),
-    title: "KobiChat — Bilgi",
-    backgroundColor: "#0f172a",
-    autoHideMenuBar: true,
-    icon: windowIconPath(),
-    webPreferences: {
-      nodeIntegration: false,
-      contextIsolation: true
-    }
-  });
-  aboutWindow.setMenu(null);
-  aboutWindow.once("ready-to-show", () => {
-    if (aboutWindow && !aboutWindow.isDestroyed()) {
-      aboutWindow.center();
-      aboutWindow.show();
-    }
-  });
-  aboutWindow.on("closed", () => {
-    aboutWindow = null;
-  });
-  aboutWindow.webContents.on("will-navigate", (e, url) => {
-    if (typeof url === "string" && url.startsWith("mailto:")) {
-      e.preventDefault();
-      shell.openExternal(url);
-    }
-  });
-  aboutWindow.loadURL(
-    `data:text/html;charset=utf-8,${encodeURIComponent(buildAboutPageHtml())}`
-  );
 }
 
 function openQuickMessagesWindow() {
@@ -560,6 +661,7 @@ function openQuickMessagesWindow() {
       nodeIntegration: false
     }
   });
+  removeDefaultWindowMenu(quickMessagesWindow);
   attachDownloadReveal(quickMessagesWindow.webContents.session);
   quickMessagesWindow.once("ready-to-show", () => {
     if (quickMessagesWindow && !quickMessagesWindow.isDestroyed()) {
@@ -573,12 +675,233 @@ function openQuickMessagesWindow() {
   if (!app.isPackaged) {
     const qs = new URLSearchParams(q);
     quickMessagesWindow.loadURL(`http://localhost:5173/?${qs.toString()}`);
+    openDevToolsWhenReady(quickMessagesWindow);
   } else {
     const p = distWebPath();
     if (fs.existsSync(p)) {
       quickMessagesWindow.loadFile(p, { query: q });
     } else {
       quickMessagesWindow.loadURL(
+        `data:text/html;charset=utf-8,${encodeURIComponent(
+          `<!DOCTYPE html><html><body style="font-family:system-ui;padding:24px;background:#0f172a;color:#e2e8f0">build eksik</body></html>`
+        )}`
+      );
+    }
+  }
+  return { ok: true };
+}
+
+function loadInfoWindowContent(win, query) {
+  if (!win || win.isDestroyed()) return;
+  if (!app.isPackaged) {
+    const qs = new URLSearchParams(query);
+    win.loadURL(`http://localhost:5173/?${qs.toString()}`);
+    openDevToolsWhenReady(win);
+    return;
+  }
+  const p = distWebPath();
+  if (fs.existsSync(p)) {
+    win.loadFile(p, { query });
+  } else {
+    win.loadURL(
+      `data:text/html;charset=utf-8,${encodeURIComponent(
+        `<!DOCTYPE html><html><body style="font-family:system-ui;padding:24px;background:#0f172a;color:#e2e8f0">build eksik</body></html>`
+      )}`
+    );
+  }
+}
+
+function suppressInfoBlurClose(ms = 900) {
+  suppressInfoBlurCloseUntil = Date.now() + ms;
+}
+
+function activateInfoPartyMode() {
+  if (!infoWindow || infoWindow.isDestroyed() || infoPartyActive) return;
+  infoPartyActive = true;
+  ignoreInfoMoveUntil = Date.now() + 1200;
+  loadInfoWindowContent(infoWindow, { mode: "info", party: "1" });
+}
+
+function deactivateInfoPartyMode() {
+  if (!infoWindow || infoWindow.isDestroyed() || !infoPartyActive) return;
+  infoPartyActive = false;
+  ignoreInfoMoveUntil = Date.now() + 1200;
+  loadInfoWindowContent(infoWindow, { mode: "info" });
+}
+
+function toggleInfoPartyMode() {
+  if (infoPartyActive) deactivateInfoPartyMode();
+  else activateInfoPartyMode();
+}
+
+function watchInfoWindowMove() {
+  if (!infoWindow || infoWindow.isDestroyed()) return;
+  const now = Date.now();
+  if (now < ignoreInfoMoveUntil) {
+    lastInfoMoveSample = null;
+    return;
+  }
+  const bounds = infoWindow.getBounds();
+  const sample = { x: bounds.x, y: bounds.y, at: now };
+  if (!lastInfoMoveSample) {
+    lastInfoMoveSample = sample;
+    return;
+  }
+  const dt = Math.max(1, sample.at - lastInfoMoveSample.at);
+  const dx = sample.x - lastInfoMoveSample.x;
+  const dy = sample.y - lastInfoMoveSample.y;
+  const distance = Math.hypot(dx, dy);
+  lastInfoMoveSample = sample;
+  if (dt <= 220 && distance >= 90 && distance / dt >= 0.75) {
+    toggleInfoPartyMode();
+    lastInfoMoveSample = null;
+  }
+}
+
+function openInfoWindow(options = {}) {
+  suppressInfoBlurClose();
+  const party = Boolean(options && options.party);
+  if (infoWindow && !infoWindow.isDestroyed()) {
+    if (party) {
+      infoPartyActive = true;
+      loadInfoWindowContent(infoWindow, { mode: "info", party: "1" });
+    }
+    infoWindow.focus();
+    return { ok: true };
+  }
+  const parent = mainWindow && !mainWindow.isDestroyed() ? mainWindow : undefined;
+  const panelWidth = 400;
+  const panelHeight = 520;
+  infoPartyActive = party;
+  lastInfoMoveSample = null;
+  ignoreInfoMoveUntil = Date.now() + 1400;
+  infoWindow = new BrowserWindow({
+    width: panelWidth,
+    height: panelHeight,
+    minWidth: panelWidth,
+    minHeight: panelHeight,
+    show: false,
+    frame: false,
+    parent,
+    title: "Bilgi - KobiChat",
+    backgroundColor: "#0f172a",
+    autoHideMenuBar: true,
+    icon: windowIconPath(),
+    webPreferences: {
+      preload: path.join(__dirname, "preload.cjs"),
+      contextIsolation: true,
+      nodeIntegration: false
+    }
+  });
+  removeDefaultWindowMenu(infoWindow);
+  attachDownloadReveal(infoWindow.webContents.session);
+  infoWindow.once("ready-to-show", () => {
+    if (infoWindow && !infoWindow.isDestroyed()) {
+      if (parent && !parent.isDestroyed()) {
+        const gap = 8;
+        const parentBounds = parent.getBounds();
+        const display = screen.getDisplayMatching(parentBounds);
+        const workArea = display.workArea;
+        const rightX = parentBounds.x + parentBounds.width + gap;
+        const leftX = parentBounds.x - panelWidth - gap;
+        const x =
+          rightX + panelWidth <= workArea.x + workArea.width
+            ? rightX
+            : Math.max(workArea.x, leftX);
+        const y = Math.min(
+          Math.max(workArea.y, parentBounds.y),
+          workArea.y + workArea.height - panelHeight
+        );
+        infoWindow.setPosition(x, y, false);
+      }
+      infoWindow.show();
+      ignoreInfoMoveUntil = Date.now() + 700;
+    }
+  });
+  infoWindow.on("closed", () => {
+    if (infoBlurCloseTimer) {
+      clearTimeout(infoBlurCloseTimer);
+      infoBlurCloseTimer = null;
+    }
+    infoWindow = null;
+    infoPartyActive = false;
+    lastInfoMoveSample = null;
+  });
+  infoWindow.on("move", watchInfoWindowMove);
+  infoWindow.on("blur", () => {
+    if (infoBlurCloseTimer) clearTimeout(infoBlurCloseTimer);
+    infoBlurCloseTimer = setTimeout(() => {
+      infoBlurCloseTimer = null;
+      if (!infoWindow || infoWindow.isDestroyed()) return;
+      if (Date.now() < suppressInfoBlurCloseUntil) return;
+      if (!app.isPackaged && infoWindow.webContents.isDevToolsOpened()) return;
+      infoWindow.close();
+    }, 350);
+  });
+  infoWindow.webContents.on("will-navigate", (e, url) => {
+    if (typeof url === "string" && /^(mailto:|https?:\/\/)/i.test(url)) {
+      e.preventDefault();
+      shell.openExternal(url);
+    }
+  });
+  infoWindow.webContents.setWindowOpenHandler(({ url }) => {
+    if (typeof url === "string" && /^https?:\/\//i.test(url)) {
+      shell.openExternal(url);
+    }
+    return { action: "deny" };
+  });
+  const q = party ? { mode: "info", party: "1" } : { mode: "info" };
+  loadInfoWindowContent(infoWindow, q);
+  return { ok: true };
+}
+
+function openSettingsWindow() {
+  if (settingsWindow && !settingsWindow.isDestroyed()) {
+    settingsWindow.focus();
+    return { ok: true };
+  }
+  settingsWindow = new BrowserWindow({
+    width: 420,
+    height: 620,
+    minWidth: 360,
+    minHeight: 520,
+    show: false,
+    /** Frameless pencere — Windows'un sistem çerçevesi gizli; başlık/drag/kapat tamamen renderer'da. */
+    frame: false,
+    resizable: false,
+    maximizable: false,
+    fullscreenable: false,
+    title: "KobiChat — Ayarlar",
+    backgroundColor: "#0f172a",
+    autoHideMenuBar: true,
+    icon: windowIconPath(),
+    webPreferences: {
+      preload: path.join(__dirname, "preload.cjs"),
+      contextIsolation: true,
+      nodeIntegration: false
+    }
+  });
+  removeDefaultWindowMenu(settingsWindow);
+  attachDownloadReveal(settingsWindow.webContents.session);
+  settingsWindow.once("ready-to-show", () => {
+    if (settingsWindow && !settingsWindow.isDestroyed()) {
+      settingsWindow.show();
+    }
+  });
+  settingsWindow.on("closed", () => {
+    settingsWindow = null;
+  });
+  const q = { mode: "settings" };
+  if (!app.isPackaged) {
+    const qs = new URLSearchParams(q);
+    settingsWindow.loadURL(`http://localhost:5173/?${qs.toString()}`);
+    openDevToolsWhenReady(settingsWindow);
+  } else {
+    const p = distWebPath();
+    if (fs.existsSync(p)) {
+      settingsWindow.loadFile(p, { query: q });
+    } else {
+      settingsWindow.loadURL(
         `data:text/html;charset=utf-8,${encodeURIComponent(
           `<!DOCTYPE html><html><body style="font-family:system-ui;padding:24px;background:#0f172a;color:#e2e8f0">build eksik</body></html>`
         )}`
@@ -598,7 +921,7 @@ function buildTrayMenu() {
       mainWindow.webContents.send("kobichat:presence-tray", { presenceStatus: key });
     }
     if (tray) {
-      tray.setToolTip(`KobiChat — ${trayPresenceKeyToLabel(key)}`);
+      applyTrayPresenceTooltip(key);
     }
   };
 
@@ -629,13 +952,15 @@ function buildTrayMenu() {
       click: () => setStatus("disarida")
     },
     { type: "separator" },
-    {
-      label: "Bilgi…",
-      click: () => {
-        openAboutWindow();
-      }
-    },
-    { type: "separator" },
+    ...(app.isPackaged
+      ? [
+          {
+            label: "Güncelleme ara",
+            click: () => runManualUpdateCheck()
+          },
+          { type: "separator" }
+        ]
+      : []),
     {
       label: "Çıkış",
       click: () => {
@@ -654,7 +979,7 @@ function createTray() {
   }
   try {
     tray = new Tray(img);
-    tray.setToolTip(`KobiChat — ${trayPresenceKeyToLabel(settingsStore.getAll().presenceStatus || "uygun")}`);
+    applyTrayPresenceTooltip();
     tray.setContextMenu(buildTrayMenu());
     tray.on("double-click", () => {
       showRosterWindow();
@@ -667,6 +992,7 @@ function createTray() {
 function refreshTrayMenu() {
   if (tray && !tray.isDestroyed()) {
     tray.setContextMenu(buildTrayMenu());
+    applyTrayPresenceTooltip();
   }
 }
 
@@ -685,26 +1011,12 @@ function stopChatServer() {
 function startChatServerFromSettings() {
   return new Promise((resolve, reject) => {
     const s = settingsStore.getAll();
-    const shouldRunLocal = s.clusterMode ? clusterRole === "leader" : s.serverMode === "local";
-    if (!shouldRunLocal) {
-      resolve();
-      return;
-    }
     const dataDir = path.join(app.getPath("userData"), "server-data");
     const staticDir = path.join(__dirname, "../dist/web");
     const staticOk = fs.existsSync(path.join(staticDir, "index.html"));
     createChatServer({
       dataDir,
-      staticDir: staticOk ? staticDir : null,
-      cluster: {
-        clusterEnabled: s.clusterMode,
-        clusterId: s.clusterId,
-        nodeId: s.nodeId,
-        sharedSecret: s.sharedSecret,
-        getRole: () => clusterRole,
-        getTerm: () => clusterTerm,
-        getLeaseUntil: () => clusterLeaseUntil
-      }
+      staticDir: staticOk ? staticDir : null
     })
       .then((instance) => {
         chatInstance = instance;
@@ -722,30 +1034,42 @@ function startChatServerFromSettings() {
 
 async function applyServerMode() {
   await stopChatServer();
+  const s = settingsStore.getAll();
+  if (String(s.serverMode || "local").toLowerCase() !== "local") {
+    broadcastConfig();
+    return;
+  }
   try {
     await startChatServerFromSettings();
   } catch (e) {
     console.error(e);
-    const s = settingsStore?.getAll?.() || {};
-    if (isAddrInUseError(e) && s.clusterMode) {
-      // Port çakışmasında yanlışlıkla localhost'a sabitlenmek yerine mevcut lider/hedefe düş.
-      const fallbackHost =
-        (clusterLeader?.host && String(clusterLeader.host).trim()) ||
-        (String(s.remoteHost || "").trim() ? String(s.remoteHost).trim() : "127.0.0.1");
-      const fallbackPort =
-        Number(clusterLeader?.port) || Number(s.remotePort) || Number(s.localPort) || DEFAULT_PORT;
+    const msg = String(e?.message || e || "");
+    const isAddrInUse = msg.includes("EADDRINUSE");
+    if (isAddrInUse) {
+      // Aynı makinede zaten çalışan bir sunucu varsa, bu instance'ı istemciye düşür.
+      const fallbackPort = Number(s.localPort) || DEFAULT_PORT;
       settingsStore.save({
         serverMode: "remote",
-        remoteHost: fallbackHost,
+        remoteHost: "127.0.0.1",
         remotePort: fallbackPort
       });
-      clusterRole = "follower";
-      clusterLeaseUntil = Date.now() + 1200;
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        const key = `addrinuse:${fallbackPort}`;
+        const now = Date.now();
+        if (key !== lastServerErrorKey || now - lastServerErrorAt > 10000) {
+          lastServerErrorKey = key;
+          lastServerErrorAt = now;
+          dialog.showErrorBox(
+            "Sunucu zaten çalışıyor",
+            `Bu bilgisayarda ${fallbackPort} portunu kullanan bir KobiChat sunucusu zaten açık.\n\nBu oturum istemci moduna alındı ve mevcut yerel sunucuya bağlanacak.`
+          );
+        }
+      }
       broadcastConfig();
       return;
     }
     if (mainWindow && !mainWindow.isDestroyed()) {
-      const key = `${e?.message || e}`;
+      const key = msg;
       const now = Date.now();
       if (key !== lastServerErrorKey || now - lastServerErrorAt > 10000) {
         lastServerErrorKey = key;
@@ -758,130 +1082,6 @@ async function applyServerMode() {
     }
   }
   broadcastConfig();
-}
-
-function discoverLanServers() {
-  return new Promise((resolve) => {
-    const s = settingsStore?.getAll?.() || {};
-    const clusterId = String(s.clusterId || CLUSTER_ID_DEFAULT);
-    const secret = String(s.sharedSecret || CLUSTER_SECRET_DEFAULT);
-    const nonce = `${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
-    const found = new Map();
-    const sock = dgram.createSocket({ type: "udp4", reuseAddr: true });
-    let finished = false;
-    const done = () => {
-      if (finished) return;
-      finished = true;
-      try {
-        sock.close();
-      } catch {
-        // ignored
-      }
-      resolve(Array.from(found.values()));
-    };
-    sock.on("error", () => done());
-    sock.on("message", (buf, rinfo) => {
-      try {
-        const o = JSON.parse(buf.toString());
-        if (o.t === "kobichat-offer" && o.host && o.httpPort) {
-          if (o.clusterId && String(o.clusterId) !== clusterId) return;
-          if (secret) {
-            const body = {
-              t: String(o.t || ""),
-              v: Number(o.v) || 1,
-              host: String(o.host || ""),
-              httpPort: Number(o.httpPort) || 0,
-              clusterId: String(o.clusterId || ""),
-              nodeId: String(o.nodeId || ""),
-              role: String(o.role || ""),
-              term: Number(o.term) || 0,
-              leaseUntil: Number(o.leaseUntil) || 0,
-              ts: Number(o.ts) || 0
-            };
-            const sig = signCluster(body, secret);
-            if (String(o.signature || "") !== sig) return;
-          }
-          const packetHost = String(rinfo?.address || "").trim();
-          const offerHost = String(o.host || "").trim();
-          const host = packetHost && packetHost !== "0.0.0.0" ? packetHost : offerHost;
-          const socketUrl = `http://${host}:${o.httpPort}`;
-          found.set(socketUrl, {
-            socketUrl,
-            host,
-            port: o.httpPort,
-            role: o.role || "follower",
-            term: Number(o.term) || 0,
-            leaseUntil: Number(o.leaseUntil) || 0,
-            nodeId: String(o.nodeId || "")
-          });
-        }
-      } catch {
-        // ignored
-      }
-    });
-    sock.bind(0, () => {
-      try {
-        sock.setBroadcast(true);
-      } catch {
-        // ignored
-      }
-      const body = {
-        t: "kobichat-discover",
-        v: 1,
-        clusterId,
-        nodeId: String(s.nodeId || ""),
-        nonce
-      };
-      const msg = Buffer.from(
-        JSON.stringify({
-          ...body,
-          signature: secret ? signCluster(body, secret) : ""
-        })
-      );
-      sock.send(msg, DISCOVERY_UDP_PORT, "255.255.255.255", () => {});
-      const nets = os.networkInterfaces();
-      for (const name of Object.keys(nets)) {
-        for (const net of nets[name]) {
-          if (net.family === "IPv4" && !net.internal && net.address) {
-            const p = net.address.split(".").map(Number);
-            if (p.length === 4) {
-              const bcast = `${p[0]}.${p[1]}.${p[2]}.255`;
-              try {
-                sock.send(msg, DISCOVERY_UDP_PORT, bcast, () => {});
-              } catch {
-                // ignored
-              }
-            }
-          }
-        }
-      }
-    });
-    setTimeout(() => {
-      const list = Array.from(found.values()).sort((a, b) => {
-        const aLeader = a.role === "leader" ? 1 : 0;
-        const bLeader = b.role === "leader" ? 1 : 0;
-        if (aLeader !== bLeader) return bLeader - aLeader;
-        if ((a.term || 0) !== (b.term || 0)) return (b.term || 0) - (a.term || 0);
-        if ((a.leaseUntil || 0) !== (b.leaseUntil || 0)) return (b.leaseUntil || 0) - (a.leaseUntil || 0);
-        const an = String(a.nodeId || "");
-        const bn = String(b.nodeId || "");
-        if (an !== bn) return an.localeCompare(bn);
-        const ah = String(a.host || "");
-        const bh = String(b.host || "");
-        if (ah !== bh) return ah.localeCompare(bh);
-        return Number(a.port || 0) - Number(b.port || 0);
-      });
-      if (!finished) {
-        finished = true;
-        try {
-          sock.close();
-        } catch {
-          // ignored
-        }
-        resolve(list);
-      }
-    }, 2200);
-  });
 }
 
 /** Aynı tick içinde minimize + flash birleşince Windows’ta görev çubuğu yanıp sönmez; küçültmeyi ve flash’ı erteleyelim. */
@@ -909,33 +1109,99 @@ function scheduleMinimizeAndFlash(win) {
     }
     setTimeout(() => {
       if (win.isDestroyed()) return;
-      try {
-        win.flashFrame(true);
-      } catch {
-        // ignored
-      }
+      pulseTaskbarFlash(win);
     }, 150);
   }, 0);
 }
 
 /**
- * @param {{ peerId: string, peerClientUuid: string, peerDisplayName?: string, peerName?: string, peerStatus?: string, openMinimized?: boolean }} payload
+ * Windows'un odak çalma korumasını aşarak pencereyi kesin ön plana getirir.
+ * setAlwaysOnTop(true) → focus → setAlwaysOnTop(false) sıralaması
+ * Windows'ta BrowserWindow.focus()'un tek başına yetersiz kaldığı
+ * durumları (arka plandaki uygulama) çözer.
+ */
+function bringWindowToFront(win) {
+  if (!win || win.isDestroyed()) return;
+  try { if (win.isMinimized()) win.restore(); } catch { /* ignored */ }
+  try { win.show(); } catch { /* ignored */ }
+  try {
+    win.setAlwaysOnTop(true);
+    win.focus();
+    win.setAlwaysOnTop(false);
+  } catch { /* ignored */ }
+}
+
+/**
+ * Pencereyi arka planda (odağı çalmadan) gösterir ve görev çubuğunda yanıp söndürür.
+ * Kullanıcı aktif olarak başka bir sohbette yazıyorken gelen mesaj bildirimi için kullanılır.
+ *
+ * Windows'ta `flashFrame(true)` tek çağrıyla kullanıcı pencereye tıklayana kadar
+ * sürekli yanıp söner — manuel pulse döngüsüne gerek yok.
+ * `showInactive()` sonrası kısa gecikme, pencerenin görev çubuğuna yerleşmesini bekler.
+ */
+function showWindowInBackground(win) {
+  if (!win || win.isDestroyed()) return;
+  try { if (win.isMinimized()) win.restore(); } catch { /* ignored */ }
+  try {
+    if (typeof win.showInactive === "function") {
+      win.showInactive();
+    } else {
+      win.show();
+    }
+  } catch { /* ignored */ }
+  setTimeout(() => {
+    if (win.isDestroyed() || win.isFocused()) return;
+    try { win.flashFrame(true); } catch { /* ignored */ }
+  }, 200);
+}
+
+/**
+ * Herhangi bir BrowserWindow (sohbet, roster, vs.) şu anda odakta mı?
+ * Başka bir pencere odaktaysa, gelen mesaj bildirimi odağı çalmamalı.
+ */
+function isAnyAppWindowFocused() {
+  for (const w of BrowserWindow.getAllWindows()) {
+    if (!w.isDestroyed() && w.isFocused()) return true;
+  }
+  return false;
+}
+
+/**
+ * Gelen mesaj bildirimi için akıllı pencere açma:
+ * - Başka bir pencere odaktaysa → arka planda göster + görev çubuğunda yanıp söndür
+ * - Hiçbir pencere odakta değilse → ön plana getir
+ */
+function smartShowForIncoming(win) {
+  if (!win || win.isDestroyed()) return;
+  if (isAnyAppWindowFocused()) {
+    showWindowInBackground(win);
+  } else {
+    bringWindowToFront(win);
+  }
+}
+
+/**
+ * @param {{ peerId: string, peerClientUuid: string, peerDisplayName?: string, peerName?: string, peerStatus?: string, openMinimized?: boolean, pokeAttention?: boolean }} payload
  * @returns {{ ok: boolean, created?: boolean }}
  */
 function openChatWindowFromPayload(payload) {
   const peerId = String(payload.peerId || "").trim();
   const peerClientUuid = String(payload.peerClientUuid || "").trim();
-  if (!peerId || !peerClientUuid) return { ok: false };
+  if (!peerClientUuid) return { ok: false };
   const openMinimized = Boolean(payload.openMinimized);
+  const pokeAttention = Boolean(payload.pokeAttention);
   const peerName = String(payload.peerDisplayName || payload.peerName || "").slice(0, 80);
   const peerStatus = String(payload.peerStatus || "available").slice(0, 32);
-  const existing = chatWindowsByClientUuid.get(peerClientUuid);
+  const peerProfileImage = String(payload.peerProfileImage || "").trim().slice(0, 400000);
+  const peerMapKey = peerWindowKey(peerClientUuid);
+  const existing = chatWindowsByClientUuid.get(peerMapKey);
   if (existing && !existing.isDestroyed()) {
     try {
       existing.webContents.send("kobichat:chat-peer-socket", {
         peerId,
         peerDisplayName: peerName,
-        peerStatus
+        peerStatus,
+        peerProfileImage
       });
     } catch {
       // ignored
@@ -949,28 +1215,17 @@ function openChatWindowFromPayload(payload) {
     }
     if (openMinimized) {
       try {
-        if (!existing.isFocused()) {
-          if (!existing.isMinimized()) {
-            scheduleMinimizeAndFlash(existing);
-          } else {
-            setTimeout(() => {
-              if (existing.isDestroyed()) return;
-              try {
-                existing.flashFrame(true);
-              } catch {
-                // ignored
-              }
-            }, 150);
-          }
+        if (pokeAttention) {
+          applyIncomingPokeAttentionToChatWindow(existing);
+        } else {
+          smartShowForIncoming(existing);
         }
       } catch {
         // ignored
       }
       return { ok: true, created: false };
     }
-    if (existing.isMinimized()) existing.restore();
-    existing.show();
-    existing.focus();
+    bringWindowToFront(existing);
     return { ok: true, created: false };
   }
   const win = new BrowserWindow({
@@ -987,38 +1242,53 @@ function openChatWindowFromPayload(payload) {
     webPreferences: {
       preload: path.join(__dirname, "preload.cjs"),
       contextIsolation: true,
-      nodeIntegration: false
+      nodeIntegration: false,
+      backgroundThrottling: false
     }
   });
+  removeDefaultWindowMenu(win);
   attachDownloadReveal(win.webContents.session);
   win.on("focus", () => {
-    try {
-      win.flashFrame(false);
-    } catch {
-      // ignored
-    }
+    stopTaskbarPulse(win);
   });
   win.once("ready-to-show", () => {
-    if (openMinimized) {
-      scheduleMinimizeAndFlash(win);
-    } else {
+    if (pokeAttention) {
       win.show();
+      runAttentionShakeOnWindow(win);
+      try {
+        win.webContents.send("kobichat:attention-css-burst");
+      } catch {
+        // ignored
+      }
+    } else if (openMinimized) {
+      smartShowForIncoming(win);
+    } else {
+      bringWindowToFront(win);
     }
   });
-  chatWindowsByClientUuid.set(peerClientUuid, win);
+  chatWindowsByClientUuid.set(peerMapKey, win);
   win.on("closed", () => {
-    chatWindowsByClientUuid.delete(peerClientUuid);
+    chatWindowsByClientUuid.delete(peerMapKey);
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      try {
+        mainWindow.webContents.send("kobichat:chat-window-closed", { peerClientUuid });
+      } catch {
+        // ignored
+      }
+    }
   });
   const q = {
     mode: "chat",
     peerId,
     peerUuid: peerClientUuid,
     peerName: peerName || "—",
-    peerStatus
+    peerStatus,
+    peerProfileImage
   };
   if (!app.isPackaged) {
     const qs = new URLSearchParams(q);
     win.loadURL(`http://localhost:5173/?${qs.toString()}`);
+    openDevToolsWhenReady(win);
   } else {
     const p = distWebPath();
     if (fs.existsSync(p)) {
@@ -1069,6 +1339,105 @@ function uniqueFilePath(targetDir, filename) {
   return candidate;
 }
 
+/**
+ * İndirme hedefi: aynı isim + beklenen boyut ile mevcut dosya varsa yeniden indirmeden kullan.
+ * Boyut bilgisi yoksa veya uyuşmazsa `uniqueFilePath` ile çakışmayı çöz.
+ */
+function resolveChatDownloadSavePath(targetDir, filename, expectedSize) {
+  const safeName = safeDownloadName(filename, "download");
+  const direct = path.join(targetDir, safeName);
+  const exp =
+    typeof expectedSize === "number" && Number.isFinite(expectedSize) && expectedSize >= 0
+      ? Math.trunc(expectedSize)
+      : null;
+
+  if (fs.existsSync(direct)) {
+    try {
+      const st = fs.statSync(direct);
+      if (st.isFile() && exp !== null && st.size === exp) {
+        return { savePath: direct, reused: true };
+      }
+    } catch {
+      // fall through
+    }
+    return { savePath: uniqueFilePath(targetDir, safeName), reused: false };
+  }
+  return { savePath: direct, reused: false };
+}
+
+function isPathUnderDirectory(filePath, rootDir) {
+  const file = path.resolve(filePath);
+  const root = path.resolve(rootDir);
+  if (process.platform === "win32") {
+    return file.toLowerCase().startsWith(root.toLowerCase() + path.sep) || file.toLowerCase() === root.toLowerCase();
+  }
+  return file.startsWith(root + path.sep) || file === root;
+}
+
+const DOWNLOAD_DIAGNOSTIC_LOG = "download-diagnostics.jsonl";
+
+function downloadDiagnosticLogPath() {
+  return path.join(app.getPath("userData"), "logs", DOWNLOAD_DIAGNOSTIC_LOG);
+}
+
+function writeDownloadDiagnostic(entry) {
+  try {
+    const dir = path.join(app.getPath("userData"), "logs");
+    fs.mkdirSync(dir, { recursive: true });
+    const line = `${JSON.stringify({
+      at: new Date().toISOString(),
+      appVersion: app.getVersion(),
+      ...entry
+    })}\n`;
+    fs.appendFileSync(path.join(dir, DOWNLOAD_DIAGNOSTIC_LOG), line, "utf8");
+  } catch (e) {
+    console.error("writeDownloadDiagnostic:", e?.message || e);
+  }
+}
+
+function serverBasesFromDownloadCandidates(candidates) {
+  const bases = new Set();
+  for (const raw of candidates || []) {
+    try {
+      const url = new URL(String(raw || "").trim());
+      bases.add(`${url.protocol}//${url.host}`);
+    } catch {
+      // ignored
+    }
+  }
+  return [...bases];
+}
+
+function postDownloadDiagnosticToServers(bases, body) {
+  const raw = JSON.stringify(body);
+  for (const base of bases.slice(0, 4)) {
+    try {
+      const url = new URL("/api/client-diagnostics", base);
+      const client = url.protocol === "https:" ? https : http;
+      const req = client.request(
+        url,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Content-Length": Buffer.byteLength(raw)
+          }
+        },
+        (res) => {
+          res.resume();
+        }
+      );
+      req.on("error", () => {});
+      req.setTimeout(4000, () => {
+        req.destroy();
+      });
+      req.end(raw);
+    } catch {
+      // ignored
+    }
+  }
+}
+
 function downloadFileToPath(rawUrl, savePath) {
   return new Promise((resolve, reject) => {
     let redirects = 0;
@@ -1113,44 +1482,116 @@ function downloadFileToPath(rawUrl, savePath) {
 }
 
 async function downloadAndHandleAttachment(payload) {
-  const rawUrl = String(payload?.url || "").trim();
-  if (!rawUrl) return false;
+  /**
+   * Aday URL listesi:
+   *  - Yeni protokol: `payload.urls = string[]` — sırayla dene, ilk başarılıda dur.
+   *  - Eski protokol: `payload.url = string` — tek URL deniyor (geri uyumluluk).
+   *
+   * 404 alınmasına rağmen başka bir aday URL başarılı oluyorsa indirme
+   * başarılı sayılır. Tüm adaylar 404 ile döndüyse `missing_on_server`,
+   * herhangi bir ağ hatası olduysa `download_failed` döndürürüz.
+   *
+   * `payload.fileSize`: sunucudaki bayt boyutu; aynı isimli yerel dosya bu boyutta
+   * ise yeniden indirilmez (`reused: true`). İndirme bitince klasör açılmaz;
+   * renderer "Aç" ile `kobichat:open-downloaded` çağırır.
+   */
+  const urlsList = Array.isArray(payload?.urls)
+    ? payload.urls.map((u) => String(u || "").trim()).filter(Boolean)
+    : [];
+  const singleUrl = String(payload?.url || "").trim();
+  const seenUrl = new Set();
+  const candidates = [];
+  for (const u of [singleUrl, ...urlsList]) {
+    if (!u || seenUrl.has(u)) continue;
+    seenUrl.add(u);
+    candidates.push(u);
+  }
+  if (candidates.length === 0) return { ok: false, reason: "invalid_url" };
+
   const filename = safeDownloadName(payload?.filename, "download");
+  const rawSize = payload?.fileSize;
+  const expectedSize = typeof rawSize === "number" && Number.isFinite(rawSize) ? rawSize : null;
   const docsDir = app.getPath("documents");
   const targetDir = path.join(docsDir, "kobiChat");
   fs.mkdirSync(targetDir, { recursive: true });
-  const savePath = uniqueFilePath(targetDir, filename);
-  await downloadFileToPath(rawUrl, savePath);
-  const openErr = await shell.openPath(targetDir);
-  if (openErr) {
-    shell.showItemInFolder(savePath);
+  const { savePath, reused: alreadyHave } = resolveChatDownloadSavePath(targetDir, filename, expectedSize);
+  if (alreadyHave) {
+    return { ok: true, path: savePath, reused: true };
   }
-  return true;
+  const attempts = [];
+  let allMissing = true;
+  for (const u of candidates) {
+    try {
+      await downloadFileToPath(u, savePath);
+      broadcastPlaySound("downloadComplete");
+      return { ok: true, path: savePath, reused: false };
+    } catch (e) {
+      const msg = String(e?.message || e || "unknown");
+      attempts.push({ url: u, error: msg });
+      if (!msg.includes("HTTP 404")) {
+        allMissing = false;
+      }
+      try {
+        if (fs.existsSync(savePath)) fs.unlinkSync(savePath);
+      } catch {
+        // ignored
+      }
+    }
+  }
+  const reason = allMissing ? "missing_on_server" : "download_failed";
+  const ref = `${Date.now()}-${randomUUID().slice(0, 8)}`;
+  const diagnostic = {
+    ref,
+    reason,
+    filename,
+    fileRel: String(payload?.fileRel || "").trim(),
+    messageId: payload?.messageId ?? null,
+    fileSize: expectedSize,
+    attempts
+  };
+  writeDownloadDiagnostic({ event: "download_failed", ...diagnostic });
+  postDownloadDiagnosticToServers(serverBasesFromDownloadCandidates(candidates), {
+    type: "download_failed",
+    ...diagnostic
+  });
+  return {
+    ok: false,
+    reason,
+    ref,
+    logPath: downloadDiagnosticLogPath(),
+    attempts
+  };
 }
 
 function createWindow() {
   mainWindow = new BrowserWindow({
-    width: 380,
-    height: 600,
-    minWidth: 380,
-    maxWidth: 380,
-    minHeight: 600,
-    maxHeight: 600,
-    resizable: false,
-    maximizable: false,
-    frame: false,
+    width: 275,
+    height: 520,
+    minWidth: 275,
+    minHeight: 520,
+    useContentSize: true,
+    resizable: true,
+    maximizable: true,
+    frame: true,
     show: false,
-    skipTaskbar: true,
+    skipTaskbar: false,
     backgroundColor: "#0f172a",
     autoHideMenuBar: true,
     icon: windowIconPath(),
     webPreferences: {
       preload: path.join(__dirname, "preload.cjs"),
       contextIsolation: true,
-      nodeIntegration: false
+      nodeIntegration: false,
+      /**
+       * Roster gizliyken (X ile kapat → hide) Chromium zamanlayıcılarını ağır kestiği için
+       * Socket.IO ping'leri kaçabiliyor; sunucu oturumu düşüyor ve kişi sürekli çevrimdışı görünüyor.
+       * Sohbet penceresinden mesaj bu süreçte kısa süreli “online” yanılsaması yaratabilir.
+       */
+      backgroundThrottling: false
     }
   });
 
+  removeDefaultWindowMenu(mainWindow);
   attachDownloadReveal(mainWindow.webContents.session);
 
   mainWindow.once("ready-to-show", () => {
@@ -1160,7 +1601,7 @@ function createWindow() {
 
   if (!app.isPackaged) {
     mainWindow.loadURL("http://localhost:5173/?mode=roster");
-    mainWindow.webContents.openDevTools({ mode: "detach" });
+    openDevToolsWhenReady(mainWindow);
   } else {
     const p = distWebPath();
     if (fs.existsSync(p)) mainWindow.loadFile(p, { query: { mode: "roster" } });
@@ -1172,6 +1613,10 @@ function createWindow() {
       );
     }
   }
+
+  mainWindow.on("focus", () => {
+    try { mainWindow.flashFrame(false); } catch { /* ignored */ }
+  });
 
   mainWindow.on("close", (e) => {
     if (!appQuitting) {
@@ -1193,8 +1638,9 @@ if (!app.requestSingleInstanceLock()) {
   });
 
   app.whenReady().then(async () => {
+    Menu.setApplicationMenu(null);
     if (process.platform === "win32") {
-      app.setAppUserModelId("com.mercan.kobichat");
+      app.setAppUserModelId("com.hidroteknik.kobichat");
     }
     settingsStore = await openSettingsStore(app.getPath("userData"));
     normalizeSettingsForVersion(app.getVersion());
@@ -1215,10 +1661,10 @@ if (!app.requestSingleInstanceLock()) {
         console.error("Oturum açılışında başlatma ayarlanamadı:", e);
       }
     }
-    startClusterCoordinator();
     await applyServerMode();
     createWindow();
     createTray();
+    setupAutoUpdater();
 
     try {
       globalShortcut.register("CommandOrControl+Shift+K", () => {
@@ -1247,10 +1693,26 @@ if (!app.requestSingleInstanceLock()) {
       }
     });
 
-    ipcMain.on("kobichat:send-to-roster", (event, payload) => {
-      if (mainWindow && !mainWindow.isDestroyed()) {
+    ipcMain.on("kobichat:send-to-roster", (_event, payload) => {
+      const send = (w) => {
         try {
-          mainWindow.webContents.send("kobichat:bridge-from-chat", payload);
+          w.webContents.send("kobichat:bridge-from-chat", payload);
+        } catch {
+          // ignored
+        }
+      };
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        send(mainWindow);
+        return;
+      }
+      for (const w of BrowserWindow.getAllWindows()) {
+        if (w.isDestroyed()) continue;
+        try {
+          const url = String(w.webContents.getURL() || "");
+          if (url.includes("mode=roster") || url.includes("mode%3Droster")) {
+            send(w);
+            return;
+          }
         } catch {
           // ignored
         }
@@ -1261,33 +1723,43 @@ if (!app.requestSingleInstanceLock()) {
     ipcMain.handle("kobichat:app-version", () => app.getVersion());
     ipcMain.handle("kobichat:settings:get", () => settingsStore.getAll());
     ipcMain.handle("kobichat:settings:save", async (_e, partial) => {
+      const before = settingsStore.getAll();
       settingsStore.save(partial || {});
-      startClusterCoordinator();
-      await applyServerMode();
+      const after = settingsStore.getAll();
+      const serverRuntimeChanged =
+        String(before.serverMode || "") !== String(after.serverMode || "") ||
+        Number(before.localPort || 0) !== Number(after.localPort || 0);
+      if (serverRuntimeChanged) {
+        await applyServerMode();
+      }
       refreshTrayMenu();
       broadcastConfig();
       return settingsStore.getAll();
     });
 
-    ipcMain.handle("kobichat:discover", () => discoverLanServers());
+    ipcMain.handle("kobichat:discover", () => []);
 
     ipcMain.handle("kobichat:clear-attention", (e) => {
       const w = BrowserWindow.fromWebContents(e.sender);
       if (w && !w.isDestroyed()) {
-        try {
-          w.flashFrame(false);
-        } catch {
-          // ignored
-        }
+        stopTaskbarPulse(w);
       }
     });
 
-    ipcMain.handle("kobichat:play-notification-sound", () => {
-      try {
-        shell.beep();
-      } catch {
-        // ignored
+    ipcMain.handle("kobichat:flash-self", (e) => {
+      const w = BrowserWindow.fromWebContents(e.sender);
+      if (w && !w.isDestroyed() && !w.isFocused()) {
+        try { w.flashFrame(true); } catch { /* ignored */ }
       }
+    });
+
+    /**
+     * Eski API uyum katmanı: önceki sürümlerde bu kanal `shell.beep()` çalardı.
+     * Renderer artık tüm sesleri kendi modülünden (src/sounds.js) çalıyor;
+     * burada uyumluluk için no-op tutuyoruz, böylece eski preload bağlamlarında
+     * çağrılırsa hata fırlatmaz.
+     */
+    ipcMain.handle("kobichat:play-notification-sound", () => {
       return true;
     });
 
@@ -1296,19 +1768,81 @@ if (!app.requestSingleInstanceLock()) {
       return openChatWindowFromPayload(payload);
     });
 
+    ipcMain.handle("kobichat:flash-main-window", () => {
+      if (!mainWindow || mainWindow.isDestroyed()) return;
+      if (mainWindow.isFocused()) return;
+      try { mainWindow.flashFrame(true); } catch { /* ignored */ }
+    });
+
+    ipcMain.handle("kobichat:attention-shake-self", (event) => {
+      try {
+        const w = BrowserWindow.fromWebContents(event.sender);
+        if (!w || w.isDestroyed()) return false;
+        runAttentionShakeOnWindow(w);
+      } catch (e) {
+        console.error("attention-shake-self:", e);
+      }
+      return true;
+    });
+
+    ipcMain.handle("kobichat:shake-chat-window", (_event, peerClientUuid) => {
+      const key = peerWindowKey(peerClientUuid);
+      if (!key) return false;
+      const win = chatWindowsByClientUuid.get(key);
+      if (!win || win.isDestroyed()) return false;
+      return applyIncomingPokeAttentionToChatWindow(win);
+    });
+
+    ipcMain.handle("kobichat:open-info-window", (_e, options) => openInfoWindow(options));
+    ipcMain.handle("kobichat:open-settings-window", () => openSettingsWindow());
     ipcMain.handle("kobichat:open-quick-messages", () => openQuickMessagesWindow());
+    ipcMain.handle("kobichat:open-external", (_e, rawUrl) => {
+      const url = String(rawUrl || "").trim();
+      if (!/^(mailto:|https?:\/\/)/i.test(url)) return false;
+      void shell.openExternal(url);
+      return true;
+    });
+    ipcMain.handle("kobichat:check-updates-now", () => runManualUpdateCheck());
     ipcMain.handle("kobichat:download-and-handle", async (_e, payload) => {
       try {
         return await downloadAndHandleAttachment(payload);
       } catch (e) {
         console.error("Dosya indirme/açma hatası:", e);
-        return false;
+        return { ok: false, reason: "download_failed" };
+      }
+    });
+
+    ipcMain.handle("kobichat:open-downloaded", async (_e, payload) => {
+      const raw = String(payload?.path || "").trim();
+      if (!raw) return { ok: false, reason: "invalid_path" };
+      try {
+        const resolved = path.resolve(raw);
+        if (!fs.existsSync(resolved)) return { ok: false, reason: "not_found" };
+        const targetDir = path.join(app.getPath("documents"), "kobiChat");
+        if (!isPathUnderDirectory(resolved, targetDir)) return { ok: false, reason: "forbidden" };
+        const errMsg = await shell.openPath(resolved);
+        return { ok: !errMsg, err: errMsg || undefined };
+      } catch (e) {
+        console.error("open-downloaded:", e);
+        return { ok: false, reason: "open_failed" };
       }
     });
 
     ipcMain.handle("kobichat:refresh-tray-menu", () => {
       refreshTrayMenu();
       return true;
+    });
+
+    ipcMain.handle("kobichat:set-chat-window-title", (event, title) => {
+      const w = BrowserWindow.fromWebContents(event.sender);
+      if (!w || w.isDestroyed()) return false;
+      try {
+        const s = typeof title === "string" ? title.trim() : "";
+        w.setTitle(s || "KobiChat");
+        return true;
+      } catch {
+        return false;
+      }
     });
 
     app.on("activate", () => {
@@ -1320,7 +1854,6 @@ if (!app.requestSingleInstanceLock()) {
   });
 
   app.on("will-quit", () => {
-    stopClusterCoordinator();
     try {
       globalShortcut.unregisterAll();
     } catch {

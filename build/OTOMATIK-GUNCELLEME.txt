@@ -1,0 +1,43 @@
+KobiChat — otomatik güncelleme
+
+==================================================
+
+
+
+Kaynak: package.json içindeki `build.publish` yapılandırması.
+
+
+
+Kurulu uygulama:
+
+  • Açılıştan yaklaşık 15 saniye sonra ve sonra her 6 saatte bir güncelleme adresini denetler.
+
+  • Yeni sürüm varsa arka planda indirir; bittiğinde yeniden başlatma sorulur.
+
+  • Tepsi sağ tık: "Güncelleme ara" ile anında kontrol.
+
+
+
+Geliştirici / yayın
+
+-------------------
+
+  • `npm run release:win:local` (gerekli ortam değişkenleri: `.env.release` — bkz. ENV_RELEASE.example.txt)
+
+  • veya ortam değişkenleri ile `npm run release:win`
+
+  • Releases’a `latest.yml` ve kurulum .exe yüklenir.
+
+
+
+İpuçları
+
+--------
+
+• Sürüm: `npm run version:bump` veya package.json "version".
+
+• "Güncelleme ara" 404 ise: yapılandırılan yayın adresi bulunamıyor olabilir. `build.publish` bilgilerini ve yayın dosyalarının erişilebilirliğini kontrol edin.
+
+• Kurum içi özel sunucu ihtiyacı olursa kaynakta `configureAutoUpdaterFeed` / fork ile generic feed eklenebilir.
+
+
