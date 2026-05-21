@@ -8,8 +8,11 @@ const { Server } = require("socket.io");
 const { randomUUID, createHash } = require("crypto");
 
 const DEFAULT_PORT = 3847;
-/** DM geçmişi: sohbet açılışında yüklenecek en son N mesaj (kronolojik sırada döner). */
-const HISTORY_LIMIT = Math.max(100, Number(process.env.KOBICHAT_HISTORY_LIMIT) || 1000);
+/**
+ * DM geçmişi: sohbet açılışında yüklenecek en son N mesaj (kronolojik sırada döner).
+ * ORDER BY id DESC + reverse — en eski N kayıt değil, en güncel pencere.
+ */
+const HISTORY_LIMIT = Math.max(100, Number(process.env.KOBICHAT_HISTORY_LIMIT) || 500);
 const MESSAGE_RETENTION_DAYS = Math.max(14, Number(process.env.KOBICHAT_MESSAGE_RETENTION_DAYS) || 90);
 const MAX_TEXT_MESSAGES = Math.max(5000, Number(process.env.KOBICHAT_MAX_TEXT_MESSAGES) || 50000);
 /**

@@ -60,9 +60,11 @@ export const MESSAGES = {
     chatDayToday: "Bugün",
     chatDayYesterday: "Dün",
     chatMessagesAria: "Sohbet geçmişi (güne göre)",
-    chatSessionLabel: "Bugün ve dün",
+    chatSessionLabel: "Bugün",
     hintNoMessagesToday:
-      "Yakın tarihli (ör. bugün veya dün) mesaj görünmüyor. Daha eskiler için üstteki “Geçmiş” düğmesine basabilirsiniz.",
+      "Bugün henüz mesaj yok. Daha eski günler için üstteki “Geçmiş” düğmesine basabilirsiniz.",
+    chatHistoryTruncatedNotice:
+      "Burada en son {n} kayıt gösteriliyor. Daha eski mesajlar sunucuda saklanıyor olabilir.",
     hintNoMessagesEver: "Henüz mesaj yok. Metin veya dosya gönderebilirsiniz.",
     emojiToolbarAria: "Emoji (yerel SVG)",
     msgLabel: "Mesaj",

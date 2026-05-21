@@ -1268,21 +1268,28 @@ export default function ChatApp() {
     };
   }, [lanReady, peerSocketId, peerClientUuid, scheduleScrollToBottom, markIncomingAsRead, isChatWindowActivelyViewed, appendPokeSystemLine]);
 
-  const { sessionMessages, pastMessages } = useMemo(() => {
+  const { sessionMessages, pastMessages, pastMessagesTotal, pastHistoryTruncated } = useMemo(() => {
     const stripStart = mainConversationStripStartsAtLocal().getTime();
     const session = [];
-    const past = [];
+    const pastAll = [];
     for (const m of messages) {
       const t = new Date(m.created_at);
       if (Number.isNaN(t.getTime())) {
-        past.push(m);
+        pastAll.push(m);
       } else if (t.getTime() >= stripStart) {
         session.push(m);
       } else {
-        past.push(m);
+        pastAll.push(m);
       }
     }
-    return { sessionMessages: session, pastMessages: past };
+    const truncated = pastAll.length > PAST_HISTORY_DISPLAY_LIMIT;
+    const past = truncated ? pastAll.slice(-PAST_HISTORY_DISPLAY_LIMIT) : pastAll;
+    return {
+      sessionMessages: session,
+      pastMessages: past,
+      pastMessagesTotal: pastAll.length,
+      pastHistoryTruncated: truncated
+    };
   }, [messages]);
   const pastDayGroups = useMemo(() => groupMessagesByDay(pastMessages, t, locale), [pastMessages, t, locale]);
 

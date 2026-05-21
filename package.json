@@ -21,6 +21,7 @@
     "version:minor": "npm version minor --no-git-tag-version",
     "test:cluster": "node scripts/cluster-hardening-check.cjs",
     "test:single-server": "node scripts/single-server-offline-smoke.cjs",
+    "test:history": "node scripts/history-order-smoke.cjs",
     "setup": "npm run build && npm run icon:prepare && electron-builder --win nsis --x64",
     "setup:installer": "npm run setup",
     "dist:win": "npm run build && npm run icon:prepare && electron-builder --win nsis dir --x64",
