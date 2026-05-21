@@ -228,6 +228,40 @@ function clampDisplayName(s) {
     .slice(0, 21);
 }
 
+const MSG_CACHE_PREFIX = "kobiChatMsgCache_v1_";
+const MSG_CACHE_MAX = 200;
+const MSG_CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+
+function loadMessageCache(peerCu) {
+  if (!peerCu) return [];
+  try {
+    const raw = localStorage.getItem(MSG_CACHE_PREFIX + peerCu);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    if (!parsed || !Array.isArray(parsed.messages)) return [];
+    if (parsed.savedAt && Date.now() - new Date(parsed.savedAt).getTime() > MSG_CACHE_TTL_MS) {
+      localStorage.removeItem(MSG_CACHE_PREFIX + peerCu);
+      return [];
+    }
+    return parsed.messages;
+  } catch {
+    return [];
+  }
+}
+
+function saveMessageCache(peerCu, messages) {
+  if (!peerCu || !messages.length) return;
+  try {
+    const toSave = messages.slice(-MSG_CACHE_MAX);
+    localStorage.setItem(
+      MSG_CACHE_PREFIX + peerCu,
+      JSON.stringify({ messages: toSave, savedAt: new Date().toISOString() })
+    );
+  } catch {
+    // storage full — ignore
+  }
+}
+
 function initialLetter(name, dateLocale) {
   if (!name || !String(name).trim()) return "?";
   const ch = String(name).trim()[0];
@@ -758,6 +792,25 @@ export default function ChatApp() {
       void window.kobiChat.setWindowTitle(title);
     }
   }, [peerName, peerStatusText, t]);
+
+  // Pencere kapanıp açıldığında sunucu yanıtını beklemeden önbellekten mesajları yükle
+  useEffect(() => {
+    if (!peerClientUuid) return;
+    const cached = loadMessageCache(peerClientUuid);
+    if (!cached.length) return;
+    setMessages((prev) => {
+      if (prev.length > 0) return prev;
+      messagesRef.current = cached;
+      return cached;
+    });
+    scheduleScrollToBottom({ force: true });
+  }, [peerClientUuid, scheduleScrollToBottom]);
+
+  // Mesajlar güncellenince önbelleğe kaydet
+  useEffect(() => {
+    if (!peerClientUuid || !messages.length) return;
+    saveMessageCache(peerClientUuid, messages);
+  }, [messages, peerClientUuid]);
 
   const isMineMessage = (m) => {
     if (!m) return false;
