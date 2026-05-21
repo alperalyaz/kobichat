@@ -1017,13 +1017,6 @@ function RosterApp({ settingsOnly = false }) {
         peerClientUuid: job.peerClientUuid,
         emittedAt: Date.now()
       };
-      const peerKeyMeta = String(job.peerClientUuid || "").trim().toLowerCase();
-      if (peerKeyMeta) {
-        dmOpenMetaByPeerRef.current.set(peerKeyMeta, {
-          requestId: job.requestId,
-          peerId: job.peerId || ""
-        });
-      }
       s.emit("dm:open", {
         peerSocketId: job.peerId || "",
         peerClientUuid: job.peerClientUuid,
@@ -1384,13 +1377,14 @@ function RosterApp({ settingsOnly = false }) {
             });
             /**
              * `message:new` relay'i çoğu zaman bu yeni BrowserWindow oluşmadan ÖNCE
-             * yayınlanır; pencere açıldığında doğaçlama ilk mesaj düşmez. Tekrar yayın —
-             * ChatApp aynı `id` ile birleştirdiği için çift görünmez / ekstra ses için
-             * key zaten kullanılmış olur (ChatApp içi soundPlayedFor).
+             * yayınlanır; pencere açıldığında ilk mesaj düşmez. Birkaç gecikmeyle
+             * tekrar yayın — ChatApp aynı `id` ile birleştirir (çift ses yok).
              */
-            window.setTimeout(() => {
-              postToChatWindows({ type: "socket:message:new", msg });
-            }, 500);
+            for (const delayMs of [400, 1000, 2200, 4500]) {
+              window.setTimeout(() => {
+                postToChatWindows({ type: "socket:message:new", msg });
+              }, delayMs);
+            }
           }
           const k = `snd-${fromSocket}-${msg.id}`;
           if (!soundPlayedForRef.current.has(k)) {
