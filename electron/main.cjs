@@ -419,8 +419,6 @@ function setupAutoUpdater() {
 
   autoUpdater.on("update-available", (info) => {
     console.log("Güncelleme bulundu:", info?.version || "?");
-    /** Renderer tarafına bildirim sesi çalması için sinyal yolla. */
-    broadcastPlaySound("updateAvailable");
     if (!updaterUiSilent) {
       updaterUiSilent = true;
       void dialog

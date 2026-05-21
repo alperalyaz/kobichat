@@ -25,7 +25,6 @@ hangi sesin nerede çıktığını aşağıdaki tablodan kontrol edebilirsin.
 | 10 | `10.mp3` | `userOnline` | Roster'dan biri online oldu (kendi haricinde) | presence | 0.32 | 1500 ms |
 | 11 | `11.mp3` | `userOffline` | Roster'dan biri offline oldu | presence | 0.28 | 1500 ms |
 | 14 | `14.mp3` | `error` | Mesaj/dosya gönderilemedi, indirme başarısız, sunucu hatası | system | 0.70 | 600 ms |
-| 16 | `16.mp3` | `updateAvailable` | Yeni uygulama sürümü bulundu (auto-updater) | system | 0.55 | 5000 ms |
 
 ---
 

@@ -1249,10 +1249,13 @@ function RosterApp({ settingsOnly = false }) {
       const peerFromPayload = normalizeClientUuid(payload?.peerClientUuid || "");
       const envelopePeer =
         peerFromPayload || normalizeClientUuid(pend?.peerClientUuid || "");
+      const peerKeyHist = String(envelopePeer || pend?.peerClientUuid || "").trim().toLowerCase();
+      const meta = peerKeyHist ? dmOpenMetaByPeerRef.current.get(peerKeyHist) : null;
+      if (peerKeyHist) dmOpenMetaByPeerRef.current.delete(peerKeyHist);
       postToChatWindows({
         type: "socket:history",
-        requestId: pend?.requestId ?? "",
-        peerId: pend?.peerId ?? "",
+        requestId: pend?.requestId || meta?.requestId || "",
+        peerId: pend?.peerId || meta?.peerId || "",
         peerClientUuid: envelopePeer,
         payload
       });

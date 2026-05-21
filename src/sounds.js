@@ -186,7 +186,7 @@ export async function bootstrapSoundPrefs() {
 
   /**
    * Ana pencere ses çalsın diye main process'in yolladığı IPC sinyalini
-   * (ör. update-available, indirme tamam) tek noktadan yakalar.
+   * (ör. indirme tamam) tek noktadan yakalar.
    */
   if (
     typeof window.kobiChat?.onPlaySound === "function" &&
