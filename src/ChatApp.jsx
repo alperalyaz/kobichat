@@ -24,6 +24,9 @@ const WEB_SETTINGS_KEY = "kobiChatWebSettings";
 /** Otomatik scroll'ın "kullanıcı dipte" sayılması için tolerans payı (px). */
 const NEAR_BOTTOM_THRESHOLD_PX = 80;
 
+/** Geçmiş modalında gösterilecek en fazla “önceki gün” mesajı (son N). */
+const PAST_HISTORY_DISPLAY_LIMIT = 100;
+
 /**
  * Kullanıcının scroll-container'da gerçekten dibe yakın olup olmadığını ölçer.
  * Yeni mesaj geldiğinde dibe sıçramayı YALNIZCA buradayken yapacağız;
@@ -1268,21 +1271,28 @@ export default function ChatApp() {
     };
   }, [lanReady, peerSocketId, peerClientUuid, scheduleScrollToBottom, markIncomingAsRead, isChatWindowActivelyViewed, appendPokeSystemLine]);
 
-  const { sessionMessages, pastMessages } = useMemo(() => {
+  const { sessionMessages, pastMessages, pastMessagesTotal, pastHistoryTruncated } = useMemo(() => {
     const stripStart = mainConversationStripStartsAtLocal().getTime();
     const session = [];
-    const past = [];
+    const pastAll = [];
     for (const m of messages) {
       const t = new Date(m.created_at);
       if (Number.isNaN(t.getTime())) {
-        past.push(m);
+        pastAll.push(m);
       } else if (t.getTime() >= stripStart) {
         session.push(m);
       } else {
-        past.push(m);
+        pastAll.push(m);
       }
     }
-    return { sessionMessages: session, pastMessages: past };
+    const truncated = pastAll.length > PAST_HISTORY_DISPLAY_LIMIT;
+    const past = truncated ? pastAll.slice(-PAST_HISTORY_DISPLAY_LIMIT) : pastAll;
+    return {
+      sessionMessages: session,
+      pastMessages: past,
+      pastMessagesTotal: pastAll.length,
+      pastHistoryTruncated: truncated
+    };
   }, [messages]);
   const pastDayGroups = useMemo(() => groupMessagesByDay(pastMessages, t, locale), [pastMessages, t, locale]);
 
@@ -1972,7 +1982,7 @@ export default function ChatApp() {
               <p className="chat-session-label">{t("chatSessionLabel")}</p>
               {sessionMessages.length === 0 ? (
                 <div className="hint-banner">
-                  {pastMessages.length > 0 ? t("hintNoMessagesToday") : t("hintNoMessagesEver")}
+                  {pastMessagesTotal > 0 ? t("hintNoMessagesToday") : t("hintNoMessagesEver")}
                 </div>
               ) : (
                 sessionMessages.map((m) => (
@@ -2304,7 +2314,13 @@ export default function ChatApp() {
               {pastDayGroups.length === 0 ? (
                 <div className="hint-banner">{t("chatHistoryEmpty")}</div>
               ) : (
-                pastDayGroups.map((group) => (
+                <>
+                  {pastHistoryTruncated ? (
+                    <div className="hint-banner" role="note">
+                      {t("chatHistoryTruncatedNotice", { n: PAST_HISTORY_DISPLAY_LIMIT })}
+                    </div>
+                  ) : null}
+                  {pastDayGroups.map((group) => (
                   <React.Fragment key={group.dayKey}>
                     <div className="chat-day-divider" role="separator" aria-hidden>
                       <span className="chat-day-divider__line" />
@@ -2327,7 +2343,8 @@ export default function ChatApp() {
                       />
                     ))}
                   </React.Fragment>
-                ))
+                  ))}
+                </>
               )}
             </div>
           </div>
