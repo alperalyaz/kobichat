@@ -454,6 +454,7 @@ function RosterApp({ settingsOnly = false }) {
   const soundPlayedForRef = useRef(new Set());
   const broadcastChRef = useRef(null);
   const openChatPeersRef = useRef(new Set());
+  const dmOpenMetaByPeerRef = useRef(new Map());
   /**
    * Peer başına son bildirim (ses + flash + pencere açma) zamanı.
    * Offline kullanıcı bağlandığında 50–100 queued mesaj birden gelebilir;
@@ -1256,10 +1257,13 @@ function RosterApp({ settingsOnly = false }) {
       const peerFromPayload = normalizeClientUuid(payload?.peerClientUuid || "");
       const envelopePeer =
         peerFromPayload || normalizeClientUuid(pend?.peerClientUuid || "");
+      const peerKeyHist = String(envelopePeer || pend?.peerClientUuid || "").trim().toLowerCase();
+      const meta = peerKeyHist ? dmOpenMetaByPeerRef.current.get(peerKeyHist) : null;
+      if (peerKeyHist) dmOpenMetaByPeerRef.current.delete(peerKeyHist);
       postToChatWindows({
         type: "socket:history",
-        requestId: pend?.requestId ?? "",
-        peerId: pend?.peerId ?? "",
+        requestId: pend?.requestId || meta?.requestId || "",
+        peerId: pend?.peerId || meta?.peerId || "",
         peerClientUuid: envelopePeer,
         payload
       });
@@ -1384,13 +1388,14 @@ function RosterApp({ settingsOnly = false }) {
             });
             /**
              * `message:new` relay'i çoğu zaman bu yeni BrowserWindow oluşmadan ÖNCE
-             * yayınlanır; pencere açıldığında doğaçlama ilk mesaj düşmez. Tekrar yayın —
-             * ChatApp aynı `id` ile birleştirdiği için çift görünmez / ekstra ses için
-             * key zaten kullanılmış olur (ChatApp içi soundPlayedFor).
+             * yayınlanır; pencere açıldığında ilk mesaj düşmez. Birkaç gecikmeyle
+             * tekrar yayın — ChatApp aynı `id` ile birleştirir (çift ses yok).
              */
-            window.setTimeout(() => {
-              postToChatWindows({ type: "socket:message:new", msg });
-            }, 500);
+            for (const delayMs of [400, 1000, 2200, 4500]) {
+              window.setTimeout(() => {
+                postToChatWindows({ type: "socket:message:new", msg });
+              }, delayMs);
+            }
           }
           const k = `snd-${fromSocket}-${msg.id}`;
           if (!soundPlayedForRef.current.has(k)) {
