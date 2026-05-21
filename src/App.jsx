@@ -1348,9 +1348,8 @@ function RosterApp({ settingsOnly = false }) {
          * Sohbet penceresi bu peer için KAYITLI DEĞİL → kullanıcı ya
          * başka biriyle konuşuyor ya da hiçbir sohbet penceresi açık değil.
          *
-         * 1) Yeni sohbet penceresini minimize+flash ile aç (taskbar'da yanıp söner).
-         * 2) Roster (ana) pencerenin taskbar ikonunu da flashla.
-         * 3) Güçlü bildirim sesi (1.mp3 / 4.mp3) çal.
+         * 1) Sohbet penceresini arka planda göster; görev çubuğunda yanıp sönsün.
+         * 2) Güçlü bildirim sesi (1.mp3 / 4.mp3) çal.
          *
          * Önemli: Peer offline → online geçişinde sunucu kuyruktaki TÜM
          * mesajları (50–100 olabilir) ardışık `message:new` olarak fırlatır.
@@ -1376,9 +1375,15 @@ function RosterApp({ settingsOnly = false }) {
               peerProfileImage,
               openMinimized: true
             });
-          }
-          if (window.kobiChat?.flashMainWindow) {
-            void window.kobiChat.flashMainWindow();
+            /**
+             * `message:new` relay'i çoğu zaman bu yeni BrowserWindow oluşmadan ÖNCE
+             * yayınlanır; pencere açıldığında doğaçlama ilk mesaj düşmez. Tekrar yayın —
+             * ChatApp aynı `id` ile birleştirdiği için çift görünmez / ekstra ses için
+             * key zaten kullanılmış olur (ChatApp içi soundPlayedFor).
+             */
+            window.setTimeout(() => {
+              postToChatWindows({ type: "socket:message:new", msg });
+            }, 500);
           }
           const k = `snd-${fromSocket}-${msg.id}`;
           if (!soundPlayedForRef.current.has(k)) {
@@ -1420,10 +1425,6 @@ function RosterApp({ settingsOnly = false }) {
         fromDisplayName: payload?.fromDisplayName,
         fromClientUuid: payload?.fromClientUuid
       };
-
-      if (window.kobiChat?.flashMainWindow) {
-        void window.kobiChat.flashMainWindow();
-      }
 
       postToChatWindows(pokeRelayPayload);
 

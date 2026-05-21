@@ -134,12 +134,22 @@ function formatMsgTime(iso, dateLocale) {
   });
 }
 
-function isTodayLocal(iso) {
-  if (!iso) return false;
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return false;
-  const n = new Date();
-  return d.getFullYear() === n.getFullYear() && d.getMonth() === n.getMonth() && d.getDate() === n.getDate();
+/** Yerel dolunay (00:00) — ana şeritte “bugün+dün” ayrımı için */
+function startOfLocalCalendarDay(d) {
+  const x = new Date(d);
+  x.setHours(0, 0, 0, 0);
+  return x;
+}
+
+/**
+ * Ana sohbet gövdesinin başlangıç zamanı (yerelde dünün 00:00'ı dahil).
+ * Yalnızca “tam bugün”e göre filtre yapılırsa sunucu/istemci saat sapmasıyla mesaj yanlışlıkla yalnızca
+ * “Geçmiş” modalında kalır ve kullanıcı bildirimi duyar ama yazı göremez.
+ */
+function mainConversationStripStartsAtLocal() {
+  const s = startOfLocalCalendarDay(new Date());
+  s.setDate(s.getDate() - 1);
+  return s;
 }
 
 function calendarDayKey(iso) {
@@ -223,9 +233,10 @@ function initialLetter(name, dateLocale) {
 
 function parseChatWindowParams() {
   const p = new URLSearchParams(window.location.search);
+  const rawPeerUuid = String(p.get("peerUuid") || "").trim();
   return {
     peerId: String(p.get("peerId") || "").trim(),
-    peerClientUuid: String(p.get("peerUuid") || "").trim(),
+    peerClientUuid: normalizeClientUuid(rawPeerUuid) || rawPeerUuid,
     peerName: decodeURIComponent(p.get("peerName") || ""),
     peerStatus: p.get("peerStatus") || "available",
     peerProfileImage: decodeURIComponent(p.get("peerProfileImage") || "")
@@ -942,9 +953,19 @@ export default function ChatApp() {
       }
 
       if (d.type === "socket:history") {
-        const ridOk = d.requestId === rid;
         const envPeer = normalizeClientUuid(d.peerClientUuid || "");
         const peerOk = Boolean(envPeer && envPeer === normalizeClientUuid(peerClientUuid));
+        const reqId = String(d.requestId || "").trim();
+        /**
+         * Önceki sohbet penceresinin gecikmiş `history` yanıtı aynı peer için gelebilir;
+         * requestId uyuşmuyorsa yoksay (pencere kapat-aç sonrası boş/eski geçmiş karışmasın).
+         * requestId yoksa (eski sunucu / kuyruk zaman aşımı) yalnızca peer ile eşleştir.
+         */
+        if (reqId) {
+          if (reqId !== rid) return;
+        } else if (!peerOk) {
+          return;
+        }
         const payloadMy =
           typeof d.payload?.myClientUuid === "string"
             ? normalizeClientUuid(d.payload.myClientUuid)
@@ -953,7 +974,6 @@ export default function ChatApp() {
         /** Sunucu `myClientUuid` gönderdiyse bu oturumla örtüşmeli (eski sunucuda alan yoksa atlama). */
         const selfOk = !payloadMy || !myNorm || payloadMy === myNorm;
 
-        if (!ridOk && !peerOk) return;
         if (!selfOk) return;
 
         const list = Array.isArray(d.payload?.messages) ? d.payload.messages : [];
@@ -978,8 +998,8 @@ export default function ChatApp() {
       if (d.type === "socket:message:new") {
         const msg = d.msg;
         if (!msg?.conv_id) return;
-        const my = clientUuidRef.current;
-        const peer = peerClientUuid;
+        const my = normalizeClientUuid(clientUuidRef.current || clientUuid);
+        const peer = normalizeClientUuid(peerClientUuid);
         if (!peer) return;
         if (!isDmConvForPeerAndMe(msg.conv_id, peer, my)) return;
         const fromSocket = msg?.from_socket_id;
@@ -1248,8 +1268,22 @@ export default function ChatApp() {
     };
   }, [lanReady, peerSocketId, peerClientUuid, scheduleScrollToBottom, markIncomingAsRead, isChatWindowActivelyViewed, appendPokeSystemLine]);
 
-  const pastMessages = useMemo(() => messages.filter((m) => !isTodayLocal(m.created_at)), [messages]);
-  const sessionMessages = useMemo(() => messages.filter((m) => isTodayLocal(m.created_at)), [messages]);
+  const { sessionMessages, pastMessages } = useMemo(() => {
+    const stripStart = mainConversationStripStartsAtLocal().getTime();
+    const session = [];
+    const past = [];
+    for (const m of messages) {
+      const t = new Date(m.created_at);
+      if (Number.isNaN(t.getTime())) {
+        past.push(m);
+      } else if (t.getTime() >= stripStart) {
+        session.push(m);
+      } else {
+        past.push(m);
+      }
+    }
+    return { sessionMessages: session, pastMessages: past };
+  }, [messages]);
   const pastDayGroups = useMemo(() => groupMessagesByDay(pastMessages, t, locale), [pastMessages, t, locale]);
 
   /**
@@ -1406,7 +1440,12 @@ export default function ChatApp() {
         const r = await window.kobiChat.openDownloaded({ path: p });
         if (!r?.ok) {
           playSound("error");
-          alert(t("downloadFailed"));
+          const reason = String(r?.reason || "");
+          if (reason === "not_found") {
+            alert(t("downloadMissingOnServer"));
+          } else {
+            alert(t("downloadFailed"));
+          }
         }
         return;
       }

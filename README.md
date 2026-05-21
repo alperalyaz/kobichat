@@ -43,7 +43,7 @@ gh repo create kobichat --public --source=. --remote=origin --push
 Veya GitHub web arayüzünden boş repo oluşturduktan sonra:
 
 ```bash
-git remote add origin https://github.com/KULLANICI/kobichat.git
+git remote add origin https://github.com/alperalyaz/kobichat.git
 git branch -M main
 git push -u origin main
 ```

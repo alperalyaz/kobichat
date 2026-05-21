@@ -59,12 +59,13 @@ export function isDmConvForPeerAndMe(convId, peerUuid, myClientUuid) {
   const rest = convId.slice(3);
   const idx = rest.indexOf(":");
   if (idx === -1) return false;
-  const a = rest.slice(0, idx).trim();
-  const b = rest.slice(idx + 1).trim();
-  const peer = String(peerUuid || "").trim();
+  /** conv_id küçük harf UUID içerir; URL/roster ise çoğu zaman karma büyük-küçük gelir — normalize etmek şart */
+  const a = normalizeClientUuid(rest.slice(0, idx));
+  const b = normalizeClientUuid(rest.slice(idx + 1));
+  const peer = normalizeClientUuid(peerUuid);
   if (!peer) return false;
   if (a !== peer && b !== peer) return false;
-  const my = String(myClientUuid || "").trim();
+  const my = normalizeClientUuid(myClientUuid);
   if (!my) return true;
   const other = a === peer ? b : a;
   return other === my;

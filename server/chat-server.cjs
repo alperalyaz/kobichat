@@ -8,7 +8,8 @@ const { Server } = require("socket.io");
 const { randomUUID, createHash } = require("crypto");
 
 const DEFAULT_PORT = 3847;
-const HISTORY_LIMIT = 500;
+/** DM geçmişi: sohbet açılışında yüklenecek en son N mesaj (kronolojik sırada döner). */
+const HISTORY_LIMIT = Math.max(100, Number(process.env.KOBICHAT_HISTORY_LIMIT) || 1000);
 const MESSAGE_RETENTION_DAYS = Math.max(14, Number(process.env.KOBICHAT_MESSAGE_RETENTION_DAYS) || 90);
 const MAX_TEXT_MESSAGES = Math.max(5000, Number(process.env.KOBICHAT_MAX_TEXT_MESSAGES) || 50000);
 /**
@@ -663,7 +664,7 @@ async function createChatServer(options) {
              , file_sha256, client_msg_id, to_client_uuid, delivery_state, delivered_at, read_at, from_client_uuid
       FROM messages
       WHERE conv_id = ?
-      ORDER BY id ASC
+      ORDER BY id DESC
       LIMIT ?
     `);
     stmt.bind([convId, HISTORY_LIMIT]);
@@ -676,6 +677,7 @@ async function createChatServer(options) {
       rows.push(m);
     }
     stmt.free();
+    rows.reverse();
     return rows;
   }
 
@@ -794,6 +796,11 @@ async function createChatServer(options) {
         to_client_uuid: peerClientUuid,
         delivery_state: deliveryState
       };
+      try {
+        saveDb();
+      } catch (e) {
+        console.error("saveDb (upload):", e);
+      }
       if (ioRef) {
         if (resolvedTo) {
           ioRef.to(resolvedTo).emit("message:new", payload);
@@ -811,13 +818,6 @@ async function createChatServer(options) {
           ioRef.to(fromSocketId).emit("message:new", payload);
         }
       }
-      setImmediate(() => {
-        try {
-          saveDb();
-        } catch (e) {
-          console.error("saveDb (upload):", e);
-        }
-      });
       res.json({ ok: true, message: payload });
     } catch (e) {
       console.error(e);
@@ -1108,17 +1108,15 @@ async function createChatServer(options) {
         to_client_uuid: peerClientUuid,
         delivery_state: deliveryState
       };
+      try {
+        saveDb();
+      } catch (e) {
+        console.error("saveDb (chat:message):", e);
+      }
       if (resolvedTo) {
         io.to(resolvedTo).emit("message:new", payload);
       }
       socket.emit("message:new", payload);
-      setImmediate(() => {
-        try {
-          saveDb();
-        } catch (e) {
-          console.error("saveDb (chat:message):", e);
-        }
-      });
     });
 
     socket.on("chat:typing", (data) => {

@@ -14,7 +14,8 @@ const {
   nativeImage,
   globalShortcut,
   shell,
-  screen
+  screen,
+  net
 } = require("electron");
 const { createChatServer, DEFAULT_PORT } = require("../server/chat-server.cjs");
 const { openSettingsStore } = require("./settings-store.cjs");
@@ -1438,46 +1439,87 @@ function postDownloadDiagnosticToServers(bases, body) {
   }
 }
 
+/**
+ * İndirme klasörünü belirler ve yazılabilirliğini doğrular.
+ * `Documents\kobiChat` önceliklidir; yazılamıyorsa (OneDrive yönlendirmesi,
+ * eksik profil, izin sorunu vb.) `Downloads\kobiChat` ve `userData` sırasıyla denenir.
+ */
+function resolveWritableDownloadDir() {
+  const candidates = [
+    path.join(app.getPath("documents"), "kobiChat"),
+    path.join(app.getPath("downloads"), "kobiChat"),
+    path.join(app.getPath("userData"), "kobiChat-downloads")
+  ];
+  for (const dir of candidates) {
+    try {
+      fs.mkdirSync(dir, { recursive: true });
+      const probe = path.join(dir, `.kobichat-write-test-${Date.now()}`);
+      fs.writeFileSync(probe, "ok", "utf8");
+      fs.unlinkSync(probe);
+      return dir;
+    } catch {
+      // writable değil, sonraki aday
+    }
+  }
+  const fallback = candidates[0];
+  fs.mkdirSync(fallback, { recursive: true });
+  return fallback;
+}
+
+/**
+ * Ek dosya indirmesi: Node `http`/`https` yerine Electron `net` kullanılır.
+ * Chromium ile aynı ağ yığını (sistem vekili, kurumsal kök sertifikalar, vb.)
+ * kullanıldığı için bazı kullanıcılarda sohbet içi `<img src=...>` çalışırken
+ * ana işlem indirmesinin başarısız olması (proxy / TLS farkı) giderilir.
+ */
 function downloadFileToPath(rawUrl, savePath) {
   return new Promise((resolve, reject) => {
-    let redirects = 0;
-    const maxRedirects = 5;
-    const doRequest = (urlStr) => {
-      let urlObj;
-      try {
-        urlObj = new URL(urlStr);
-      } catch {
-        reject(new Error("Geçersiz indirme URL'si"));
+    const urlStr = String(rawUrl || "").trim();
+    let req;
+    try {
+      req = net.request({
+        method: "GET",
+        url: urlStr,
+        redirect: "follow"
+      });
+    } catch (e) {
+      reject(e instanceof Error ? e : new Error(String(e)));
+      return;
+    }
+    req.on("response", (response) => {
+      const status = Number(response.statusCode || 0);
+      if (status < 200 || status >= 300) {
+        try {
+          response.resume();
+        } catch {
+          // ignored
+        }
+        reject(new Error(`HTTP ${status}`));
         return;
       }
-      const client = urlObj.protocol === "https:" ? https : http;
-      const req = client.get(urlObj, (res) => {
-        const status = Number(res.statusCode || 0);
-        if ([301, 302, 303, 307, 308].includes(status) && res.headers.location) {
-          res.resume();
-          redirects += 1;
-          if (redirects > maxRedirects) {
-            reject(new Error("Çok fazla yönlendirme"));
-            return;
-          }
-          const nextUrl = new URL(res.headers.location, urlObj).toString();
-          doRequest(nextUrl);
-          return;
+      const out = fs.createWriteStream(savePath);
+      let settled = false;
+      const fail = (err) => {
+        if (settled) return;
+        settled = true;
+        try {
+          out.destroy();
+        } catch {
+          // ignored
         }
-        if (status < 200 || status >= 300) {
-          res.resume();
-          reject(new Error(`HTTP ${status}`));
-          return;
-        }
-        const out = fs.createWriteStream(savePath);
-        out.on("error", reject);
-        res.on("error", reject);
-        out.on("finish", () => resolve(true));
-        res.pipe(out);
+        reject(err instanceof Error ? err : new Error(String(err)));
+      };
+      out.on("error", fail);
+      response.on("error", fail);
+      out.on("finish", () => {
+        if (settled) return;
+        settled = true;
+        resolve(true);
       });
-      req.on("error", reject);
-    };
-    doRequest(rawUrl);
+      response.pipe(out);
+    });
+    req.on("error", reject);
+    req.end();
   });
 }
 
@@ -1511,9 +1553,7 @@ async function downloadAndHandleAttachment(payload) {
   const filename = safeDownloadName(payload?.filename, "download");
   const rawSize = payload?.fileSize;
   const expectedSize = typeof rawSize === "number" && Number.isFinite(rawSize) ? rawSize : null;
-  const docsDir = app.getPath("documents");
-  const targetDir = path.join(docsDir, "kobiChat");
-  fs.mkdirSync(targetDir, { recursive: true });
+  const targetDir = resolveWritableDownloadDir();
   const { savePath, reused: alreadyHave } = resolveChatDownloadSavePath(targetDir, filename, expectedSize);
   if (alreadyHave) {
     return { ok: true, path: savePath, reused: true };
@@ -1818,8 +1858,13 @@ if (!app.requestSingleInstanceLock()) {
       try {
         const resolved = path.resolve(raw);
         if (!fs.existsSync(resolved)) return { ok: false, reason: "not_found" };
-        const targetDir = path.join(app.getPath("documents"), "kobiChat");
-        if (!isPathUnderDirectory(resolved, targetDir)) return { ok: false, reason: "forbidden" };
+        const allowedDirs = [
+          path.join(app.getPath("documents"), "kobiChat"),
+          path.join(app.getPath("downloads"), "kobiChat"),
+          path.join(app.getPath("userData"), "kobiChat-downloads")
+        ];
+        const allowed = allowedDirs.some((dir) => isPathUnderDirectory(resolved, dir));
+        if (!allowed) return { ok: false, reason: "forbidden" };
         const errMsg = await shell.openPath(resolved);
         return { ok: !errMsg, err: errMsg || undefined };
       } catch (e) {

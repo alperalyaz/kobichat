@@ -1,6 +1,6 @@
 {
   "name": "kobichat",
-  "version": "1.8.1",
+  "version": "1.8.8",
   "private": true,
   "author": "Hidroteknik",
   "description": "KobiChat — yerel ağ masaüstü sohbet (SQLite, UTF-8, dosya paylaşımı)",
@@ -11,7 +11,7 @@
     "dev:browser": "vite",
     "electron": "electron .",
     "build": "vite build",
-    "icon:prepare": "node scripts/ensure-icon-size.cjs && node scripts/build-installer-assets.cjs",
+    "icon:prepare": "node scripts/ensure-icon-size.cjs && node scripts/build-installer-assets.cjs && node scripts/build-appx-assets.cjs && node scripts/build-store-listing-assets.cjs",
     "start": "node server/chat-server.cjs",
     "pack": "npm run build && npm run icon:prepare && electron-builder --win dir --x64",
     "unpacked": "npm run pack",
@@ -88,6 +88,7 @@
       "publisher": "CN=119D3611-306D-4F5E-B28C-3904B4C07374",
       "publisherDisplayName": "Hidroteknik",
       "displayName": "KobiChat",
+      "backgroundColor": "#EA580C",
       "electronUpdaterAware": false,
       "languages": [
         "tr-TR",
@@ -114,7 +115,7 @@
     "publish": [
       {
         "provider": "github",
-        "owner": "serkanyavuzmercan-gif",
+        "owner": "alperalyaz",
         "repo": "kobichat",
         "releaseType": "release"
       }

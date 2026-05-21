@@ -111,6 +111,8 @@ function main() {
     process.exit(typeof rc.status === "number" ? rc.status : 1);
   }
 
+  runNodeScript("scripts/verify-store-appx.cjs");
+
   log("Tamam. Partner Center → Manage packages ekranına release-store-out/ altındaki .appx dosyasını yükleyin.");
 }
 
