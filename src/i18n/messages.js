@@ -674,8 +674,6 @@ export const MESSAGES = {
     hintNoMessagesToday:
       "Pas encore de messages récents ici. Ouvrez ci-dessus pour les anciens enregistrements.",
     hintNoMessagesEver: "Pas encore de messages. Vous pouvez envoyer du texte ou des fichiers.",
-    chatHistoryTruncatedNotice:
-      "Affichage des {n} derniers enregistrements. Des messages plus anciens peuvent rester sur le serveur.",
     emojiToolbarAria: "Émoji (SVG local)",
     msgLabel: "Message",
     msgPlaceholder: "Écrivez un message ou glissez-déposez des fichiers…",
@@ -879,6 +877,8 @@ export const MESSAGES = {
     hintNoMessagesToday:
       "Aún no hay mensajes recientes aquí. Abre la sección de arriba para registros más antiguos.",
     hintNoMessagesEver: "Aún no hay mensajes. Puedes enviar texto o archivos.",
+    chatHistoryTruncatedNotice:
+      "Se muestran los últimos {n} registros. Puede haber mensajes más antiguos en el servidor.",
     emojiToolbarAria: "Emoji (SVG local)",
     msgLabel: "Mensaje",
     msgPlaceholder: "Escribe un mensaje o arrastra y suelta archivos…",
