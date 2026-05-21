@@ -270,6 +270,8 @@ export const MESSAGES = {
     hintNoMessagesToday:
       "No recent messages in this view yet. Tap the “History” button above for older records.",
     hintNoMessagesEver: "No messages yet. You can send text or files.",
+    chatHistoryTruncatedNotice:
+      "Showing the latest {n} records. Older messages may still be stored on the server.",
     emojiToolbarAria: "Emoji (local SVG)",
     msgLabel: "Message",
     msgPlaceholder: "Type a message or drag and drop files…",
@@ -473,6 +475,8 @@ export const MESSAGES = {
     hintNoMessagesToday:
       "Keine Nachrichten in dieser Ansicht. Oben ältere Einträge unter „History“ öffnen.",
     hintNoMessagesEver: "Noch keine Nachrichten. Sie können Text oder Dateien senden.",
+    chatHistoryTruncatedNotice:
+      "Es werden die letzten {n} Einträge angezeigt. Ältere Nachrichten können auf dem Server liegen.",
     emojiToolbarAria: "Emoji (lokales SVG)",
     msgLabel: "Nachricht",
     msgPlaceholder: "Nachricht schreiben oder Dateien per Drag & Drop…",
@@ -676,6 +680,8 @@ export const MESSAGES = {
     hintNoMessagesToday:
       "Pas encore de messages récents ici. Ouvrez ci-dessus pour les anciens enregistrements.",
     hintNoMessagesEver: "Pas encore de messages. Vous pouvez envoyer du texte ou des fichiers.",
+    chatHistoryTruncatedNotice:
+      "Affichage des {n} derniers enregistrements. Des messages plus anciens peuvent rester sur le serveur.",
     emojiToolbarAria: "Émoji (SVG local)",
     msgLabel: "Message",
     msgPlaceholder: "Écrivez un message ou glissez-déposez des fichiers…",
@@ -879,6 +885,8 @@ export const MESSAGES = {
     hintNoMessagesToday:
       "Aún no hay mensajes recientes aquí. Abre la sección de arriba para registros más antiguos.",
     hintNoMessagesEver: "Aún no hay mensajes. Puedes enviar texto o archivos.",
+    chatHistoryTruncatedNotice:
+      "Se muestran los últimos {n} registros. Puede haber mensajes más antiguos en el servidor.",
     emojiToolbarAria: "Emoji (SVG local)",
     msgLabel: "Mensaje",
     msgPlaceholder: "Escribe un mensaje o arrastra y suelta archivos…",
