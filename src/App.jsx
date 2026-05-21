@@ -1847,8 +1847,12 @@ function RosterApp({ settingsOnly = false }) {
         setUpdateCheckNotice(t("checkUpdatesDevOnlyNotice"));
         return;
       }
+      if (res?.reason === "open-failed") {
+        setUpdateCheckNotice(t("checkUpdatesStoreOpenFailed"));
+        return;
+      }
       setUpdateCooldownUntil(Date.now() + UPDATE_BUTTON_COOLDOWN_MS);
-      setUpdateCheckNotice(t("checkUpdatesStartedNotice"));
+      setUpdateCheckNotice(t("checkUpdatesStoreOpened"));
     } finally {
       setCheckingUpdateNow(false);
     }
