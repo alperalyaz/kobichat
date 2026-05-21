@@ -551,6 +551,7 @@ export default function ChatApp() {
   const typingTimerRef = useRef(null);
   const peerTypingTimerRef = useRef(null);
   const myMessageIdsRef = useRef(new Set());
+  const pendingEarlyMessagesRef = useRef([]);
 
   useEffect(() => {
     if (!window.kobiChat?.onChatPeerSocket) return undefined;
@@ -878,13 +879,14 @@ export default function ChatApp() {
   }, [convIdMemo]);
 
   useEffect(() => {
-    if (!lanReady || !peerClientUuid) return undefined;
+    if (!peerClientUuid) return undefined;
     const inst = instanceIdRef.current;
     const rid = dmRequestIdRef.current;
     const convKey = peerClientUuid;
     if (bridgeConvKeyRef.current !== convKey) {
       bridgeConvKeyRef.current = convKey;
       dmOpenSentRef.current = false;
+      pendingEarlyMessagesRef.current = [];
     }
 
     let ch = null;
@@ -896,6 +898,74 @@ export default function ChatApp() {
       } else if (bridgeRef.current?.postMessage) {
         bridgeRef.current.postMessage(payload);
       }
+    }
+
+    function applySocketMessageNew(msg) {
+      if (!msg?.conv_id) return;
+      const my = normalizeClientUuid(clientUuidRef.current || clientUuid);
+      const peer = normalizeClientUuid(peerClientUuid);
+      if (!peer) return;
+      if (!isDmConvForPeerAndMe(msg.conv_id, peer, my)) return;
+      const fromSocket = msg?.from_socket_id;
+      const sid = mySocketIdRef.current;
+      const incoming =
+        typeof fromSocket === "string" && fromSocket.length > 0 && fromSocket !== sid;
+      if (!incoming && msg?.id != null) {
+        myMessageIdsRef.current.add(String(msg.id));
+      }
+      if (incoming) {
+        const k = `snd-${fromSocket}-${msg.id}`;
+        if (!soundPlayedForRef.current.has(k)) {
+          soundPlayedForRef.current.add(k);
+          playSound("messageIncomingSoft");
+        }
+        if (!isChatWindowActivelyViewed() && window.kobiChat?.flashSelf) {
+          void window.kobiChat.flashSelf();
+        }
+        if (peerTypingTimerRef.current) clearTimeout(peerTypingTimerRef.current);
+        setPeerTyping(false);
+      }
+      setMessages((prev) => {
+        const existingIdx = prev.findIndex((x) => String(x.id) === String(msg.id));
+        if (existingIdx >= 0) {
+          const next = prev.map((x, i) =>
+            i === existingIdx
+              ? { ...x, ...msg, delivery_state: msg.delivery_state ?? x.delivery_state }
+              : x
+          );
+          messagesRef.current = next;
+          return next;
+        }
+        let base = prev;
+        const sid2 = mySocketIdRef.current;
+        const fromSelf =
+          typeof msg?.from_socket_id === "string" &&
+          sid2 &&
+          String(msg.from_socket_id) === String(sid2);
+        if (fromSelf && msg.kind === "text") {
+          base = prev.filter((m) => {
+            if (!String(m.id).startsWith("local-")) return true;
+            return !(
+              m.kind === "text" &&
+              m.text_content === msg.text_content &&
+              m.conv_id === msg.conv_id
+            );
+          });
+        }
+        const next = mergeMessageListsById([msg], base);
+        messagesRef.current = next;
+        return next;
+      });
+      scheduleScrollToBottom({ force: true });
+      if (incoming && isChatWindowActivelyViewed()) {
+        requestAnimationFrame(markIncomingAsRead);
+      }
+    }
+
+    function flushPendingEarlyMessages() {
+      if (pendingEarlyMessagesRef.current.length === 0) return;
+      const batch = pendingEarlyMessagesRef.current.splice(0);
+      for (const msg of batch) applySocketMessageNew(msg);
     }
 
     function onPayload(d) {
@@ -925,6 +995,7 @@ export default function ChatApp() {
             instanceId: inst
           });
         }
+        flushPendingEarlyMessages();
         return;
       }
 
@@ -952,6 +1023,7 @@ export default function ChatApp() {
             instanceId: inst
           });
         }
+        flushPendingEarlyMessages();
         return;
       }
 
@@ -964,9 +1036,9 @@ export default function ChatApp() {
          * requestId uyuşmuyorsa yoksay (pencere kapat-aç sonrası boş/eski geçmiş karışmasın).
          * requestId yoksa (eski sunucu / kuyruk zaman aşımı) yalnızca peer ile eşleştir.
          */
-        if (reqId) {
-          if (reqId !== rid) return;
-        } else if (!peerOk) {
+        if (reqId && reqId !== rid) {
+          if (!peerOk) return;
+        } else if (!reqId && !peerOk) {
           return;
         }
         const payloadMy =
@@ -995,84 +1067,23 @@ export default function ChatApp() {
         if (wasFirstLoad || wasNearBottom) {
           scheduleScrollToBottom({ force: true });
         }
+        flushPendingEarlyMessages();
         return;
       }
 
       if (d.type === "socket:message:new") {
         const msg = d.msg;
         if (!msg?.conv_id) return;
-        const my = normalizeClientUuid(clientUuidRef.current || clientUuid);
         const peer = normalizeClientUuid(peerClientUuid);
         if (!peer) return;
-        if (!isDmConvForPeerAndMe(msg.conv_id, peer, my)) return;
-        const fromSocket = msg?.from_socket_id;
-        const sid = mySocketIdRef.current;
-        const incoming =
-          typeof fromSocket === "string" && fromSocket.length > 0 && fromSocket !== sid;
-        if (!incoming && msg?.id != null) {
-          myMessageIdsRef.current.add(String(msg.id));
+        if (!isDmConvForPeerAndMe(msg.conv_id, peer, normalizeClientUuid(clientUuidRef.current || clientUuid))) {
+          return;
         }
-        if (incoming) {
-          const k = `snd-${fromSocket}-${msg.id}`;
-          if (!soundPlayedForRef.current.has(k)) {
-            soundPlayedForRef.current.add(k);
-            playSound("messageIncomingSoft");
-          }
-          /**
-           * Pencere minimize veya arka plandaysa taskbar'da yanıp söndür;
-           * kullanıcı pencereye focus verince flashFrame otomatik kapanır
-           * (main.cjs: win.on("focus")).
-           */
-          if (!isChatWindowActivelyViewed() && window.kobiChat?.flashSelf) {
-            void window.kobiChat.flashSelf();
-          }
-          if (peerTypingTimerRef.current) clearTimeout(peerTypingTimerRef.current);
-          setPeerTyping(false);
+        if (!mySocketIdRef.current) {
+          pendingEarlyMessagesRef.current.push(msg);
+          return;
         }
-        setMessages((prev) => {
-          const existingIdx = prev.findIndex((x) => String(x.id) === String(msg.id));
-          if (existingIdx >= 0) {
-            const next = prev.map((x, i) =>
-              i === existingIdx
-                ? { ...x, ...msg, delivery_state: msg.delivery_state ?? x.delivery_state }
-                : x
-            );
-            messagesRef.current = next;
-            return next;
-          }
-          let base = prev;
-          const sid = mySocketIdRef.current;
-          const fromSelf =
-            typeof msg?.from_socket_id === "string" &&
-            sid &&
-            String(msg.from_socket_id) === String(sid);
-          if (fromSelf && msg.kind === "text") {
-            base = prev.filter((m) => {
-              if (!String(m.id).startsWith("local-")) return true;
-              return !(
-                m.kind === "text" &&
-                m.text_content === msg.text_content &&
-                m.conv_id === msg.conv_id
-              );
-            });
-          }
-          const next = mergeMessageListsById([msg], base);
-          messagesRef.current = next;
-          return next;
-        });
-        /**
-         * Yeni mesaj eklendiyse her durumda dibe in. Bugünkü görünüm tek
-         * scroll container'a sahip; geçmişe bakmak için ayrı modal var.
-         * Bu yüzden yeni mesaj geldiğinde "kullanıcı dipte mi?" gating'ine
-         * gerek yok — `force: true` ile her zaman dibe inelim. Aksi halde
-         * threshold küçük olduğunda (80px) kullanıcı kendi mesajından sonra
-         * birkaç piksel kaymışsa veya focus/blur sırasında ölçüm anlık
-         * yanlışsa auto-scroll kaçırılıyordu.
-         */
-        scheduleScrollToBottom({ force: true });
-        if (incoming && isChatWindowActivelyViewed()) {
-          requestAnimationFrame(markIncomingAsRead);
-        }
+        applySocketMessageNew(msg);
         return;
       }
 
@@ -1269,7 +1280,7 @@ export default function ChatApp() {
       if (typeof unsubRelay === "function") unsubRelay();
       bridgeRef.current = null;
     };
-  }, [lanReady, peerSocketId, peerClientUuid, scheduleScrollToBottom, markIncomingAsRead, isChatWindowActivelyViewed, appendPokeSystemLine]);
+  }, [peerSocketId, peerClientUuid, clientUuid, scheduleScrollToBottom, markIncomingAsRead, isChatWindowActivelyViewed, appendPokeSystemLine]);
 
   const { sessionMessages, pastMessages, pastMessagesTotal, pastHistoryTruncated } = useMemo(() => {
     const stripStart = mainConversationStripStartsAtLocal().getTime();
