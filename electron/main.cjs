@@ -19,7 +19,6 @@ const {
 } = require("electron");
 const { createChatServer, DEFAULT_PORT } = require("../server/chat-server.cjs");
 const { openSettingsStore } = require("./settings-store.cjs");
-const { autoUpdater } = require("electron-updater");
 
 /**
  * Chromium'un autoplay politikasını devre dışı bırak; bu sayede tray'e
@@ -56,9 +55,6 @@ let settingsStore = null;
 let appQuitting = false;
 let lastServerErrorKey = "";
 let lastServerErrorAt = 0;
-let updatePromptOpen = false;
-/** Bildirilen başlangıç taramasında ek diyalog çıkmasın; yalnızca tepsi/ayarlardan elle kontrol. */
-let updaterUiSilent = true;
 /** Titreşim (poke) — yalnızca ilgili sohbet penceresi; çift tetiklemeyi sınırlar. */
 let lastAttentionShakeAt = 0;
 /** Görev çubuğu yanıp sönme döngüleri — pencere odaklanınca iptal edilir. */
@@ -266,65 +262,11 @@ process.on("unhandledRejection", (reason) => {
   }
 });
 
-function readDefaultPublishFromPackageJson() {
-  try {
-    const p = path.join(__dirname, "..", "package.json");
-    if (!fs.existsSync(p)) return null;
-    const pj = JSON.parse(fs.readFileSync(p, "utf8"));
-    const pub = pj?.build?.publish?.[0];
-    const provider = String(pub?.provider || "").toLowerCase();
-    if (provider === "github" && pub.owner && pub.repo) {
-      return { provider: "github", owner: String(pub.owner), repo: String(pub.repo) };
-    }
-    if (provider === "generic" && typeof pub.url === "string" && pub.url.trim()) {
-      return { provider: "generic", url: String(pub.url).trim() };
-    }
-  } catch (e) {
-    console.error("readDefaultPublishFromPackageJson:", e?.message || e);
-  }
-  return null;
-}
-
-/** İnsana okunur metin; 404 + yanıltıcı "token" cümlesi için kısa açıklama. */
-function formatUpdaterUserError(err) {
-  const raw = String(err?.message || err || "Bilinmeyen hata");
-
-  if (/not signed by the application owner/i.test(raw) || /not digitally signed/i.test(raw)) {
-    return [
-      `Otomatik güncelleme imza doğrulaması nedeniyle uygulanamadı.`,
-      ``,
-      `Kurulu sürümünüz imzalı güncelleme bekliyor, ancak yeni sürüm imzasız.`,
-      `Lütfen yeni sürümü elle (manuel) kurun; sonraki güncellemeler otomatik çalışacaktır.`,
-      ``,
-      `Teknik: ${raw}`
-    ].join("\n");
-  }
-
-  const feedLooksMissing = /releases(?:\.atom)?/i.test(raw);
-  const code404 = /\b404\b/.test(raw);
-  if (code404 && feedLooksMissing) {
-    return [
-      `Güncelleme adresine ulaşılamadı (404).`,
-      ``,
-      `Genelde nedeni şunlardan biri:`,
-      `• Güncelleme adresi yanlış ya da yayın henüz eklenmedi.`,
-      `• Güncelleme dosyalarına ağdan erişim yok.`,
-      `• Sunucu tarafında sürüm yayınlanmadı veya kaldırıldı.`,
-      ``,
-      `Not: Kurulu uygulama "token" taşımaz; hata metnindeki bu ifade bazen yanıltıcıdır.`,
-      ``,
-      `Teknik: ${raw}`
-    ].join("\n");
-  }
-  if (/authentication token is correct/i.test(raw) && code404) {
-    return (
-      `Güncelleme sunucusuna erişilemedi (404).\n\n` +
-        `Bu hata sık sık yanlış "token" metni ile gelir; asıl işlem adresi yanlış veya depoya erişim yok demektir.\n\n` +
-        `${raw}`
-    );
-  }
-  return raw;
-}
+/** Microsoft Store güncelleme sayfası (GitHub otomatik güncelleme devre dışı). */
+const MICROSOFT_STORE_PRODUCT_ID = "9N01GLSS1KBJ";
+const MICROSOFT_STORE_WEB_URL =
+  "https://apps.microsoft.com/detail/9N01GLSS1KBJ?hl=tr-tr&gl=TR";
+const MICROSOFT_STORE_PROTOCOL_URL = `ms-windows-store://pdp/?productid=${MICROSOFT_STORE_PRODUCT_ID}`;
 
 /**
  * Renderer pencerelerine "şu sesi çal" sinyali yollar.
@@ -358,17 +300,6 @@ function isMicrosoftStoreDistribution() {
   return readPackagedDistribution() === "store";
 }
 
-function configureAutoUpdaterFeed() {
-  if (!app.isPackaged) return;
-  try {
-    const feed = readDefaultPublishFromPackageJson();
-    if (!feed) return;
-    autoUpdater.setFeedURL(feed);
-  } catch (e) {
-    console.error("configureAutoUpdaterFeed:", e?.message || e);
-  }
-}
-
 function applyTrayPresenceTooltip(presenceKey) {
   if (!tray || tray.isDestroyed()) return;
   const key = presenceKey != null ? presenceKey : settingsStore.getAll().presenceStatus || "uygun";
@@ -376,134 +307,31 @@ function applyTrayPresenceTooltip(presenceKey) {
   tray.setToolTip(updaterTooltipBase);
 }
 
-function setTrayUpdaterProgress(pct) {
-  if (!tray || tray.isDestroyed()) return;
-  if (pct == null) {
-    applyTrayPresenceTooltip();
-    return;
-  }
-  const base = updaterTooltipBase || "KobiChat";
-  tray.setToolTip(`${base} — güncelleme indiriliyor ~${Math.round(pct)}%`);
-}
-
-function setupAutoUpdater() {
-  if (!app.isPackaged) return;
-  if (isMicrosoftStoreDistribution()) return;
-
-  /**
-   * Windows: `build.win.publisherName` varken electron-updater varsayılan olarak
-   * indirilen kurucunun Authenticode imzasını doğrular. Kurulum imzalanmıyorsa
-   * (`signAndEditExecutable: false`) doğrulama hep başarısız olur.
-   * `package.json` → `build.win.verifyUpdateCodeSignature` da app-update.yml ile paketlenir;
-   * burada da feed'den önce kapatıyoruz (bazı sürümlerde sıra önemli).
-   */
-  autoUpdater.verifyUpdateCodeSignature = false;
-
-  configureAutoUpdaterFeed();
-
-  autoUpdater.autoDownload = true;
-  autoUpdater.autoInstallOnAppQuit = true;
-
-  autoUpdater.on("error", (err) => {
-    console.error("autoUpdater error:", err?.message || err);
-    setTrayUpdaterProgress(null);
-    if (!updaterUiSilent) {
-      updaterUiSilent = true;
-      try {
-        dialog.showErrorBox("Güncelleme hatası", formatUpdaterUserError(err));
-      } catch {
-        // ignored
-      }
-    }
-  });
-
-  autoUpdater.on("update-available", (info) => {
-    console.log("Güncelleme bulundu:", info?.version || "?");
-    if (!updaterUiSilent) {
-      updaterUiSilent = true;
-      void dialog
-        .showMessageBox({
-          type: "info",
-          title: "KobiChat",
-          message: `Yeni sürüm ${info?.version || "?"} bulundu.`,
-          detail: "Arka planda indiriliyor; bittiğinde yeniden başlatmanız istenecek.",
-          buttons: ["Tamam"],
-          noLink: true
-        })
-        .catch(() => {});
-    }
-  });
-
-  autoUpdater.on("update-not-available", () => {
-    if (!updaterUiSilent) {
-      updaterUiSilent = true;
-      void dialog
-        .showMessageBox({
-          type: "info",
-          title: "KobiChat",
-          message: "Yüklü sürüm güncel.",
-          buttons: ["Tamam"],
-          noLink: true
-        })
-        .catch(() => {});
-    }
-  });
-
-  autoUpdater.on("download-progress", (p) => {
-    if (typeof p?.percent === "number") setTrayUpdaterProgress(p.percent);
-  });
-
-  autoUpdater.on("update-downloaded", async (info) => {
-    setTrayUpdaterProgress(null);
-    if (updatePromptOpen) return;
-    updatePromptOpen = true;
-    try {
-      const res = await dialog.showMessageBox({
-        type: "info",
-        title: "Güncelleme hazır",
-        message: `KobiChat ${info?.version || "yeni sürüm"} indirildi.`,
-        detail: "Şimdi yeniden başlatıp güncellemeyi yüklemek ister misiniz?",
-        buttons: ["Yeniden başlat ve güncelle", "Sonra"],
-        defaultId: 0,
-        cancelId: 1,
-        noLink: true
-      });
-      if (res.response === 0) {
-        setImmediate(() => autoUpdater.quitAndInstall());
-      }
-    } catch (e) {
-      console.error("update-downloaded prompt:", e);
-    } finally {
-      updatePromptOpen = false;
-    }
-  });
-
-  const checkNow = () => {
-    autoUpdater.checkForUpdates().catch((e) => {
-      console.error("checkForUpdates:", e?.message || e);
-    });
-  };
-  setTimeout(checkNow, 15000);
-  setInterval(checkNow, 6 * 60 * 60 * 1000);
-}
-
-function runManualUpdateCheck() {
+/** Ayarlar / tepsi: Microsoft Store ürün sayfasını açar. */
+async function openMicrosoftStoreForUpdates() {
   if (!app.isPackaged) return { ok: false, reason: "not-packaged" };
-  if (isMicrosoftStoreDistribution()) return { ok: false, reason: "store-distribution" };
   const now = Date.now();
   const retryAfterMs = MANUAL_UPDATE_MIN_INTERVAL_MS - (now - lastManualUpdateCheckAt);
   if (retryAfterMs > 0) {
     return { ok: false, throttled: true, retryAfterMs };
   }
   lastManualUpdateCheckAt = now;
-  configureAutoUpdaterFeed();
-  updaterUiSilent = false;
-  autoUpdater.checkForUpdates().catch((e) => {
-    console.error("checkForUpdates (manuel):", e?.message || e);
-    updaterUiSilent = true;
-    // Hata için iletişim kutusu autoUpdater "error" olayında (formatUpdaterUserError) gösterilir; çift uyarı yapma.
-  });
-  return { ok: true };
+  try {
+    if (process.platform === "win32") {
+      await shell.openExternal(MICROSOFT_STORE_PROTOCOL_URL);
+    } else {
+      await shell.openExternal(MICROSOFT_STORE_WEB_URL);
+    }
+  } catch (e) {
+    console.warn("Store protokolü açılamadı, web URL deneniyor:", e?.message || e);
+    try {
+      await shell.openExternal(MICROSOFT_STORE_WEB_URL);
+    } catch (e2) {
+      console.error("openMicrosoftStoreForUpdates:", e2?.message || e2);
+      return { ok: false, reason: "open-failed" };
+    }
+  }
+  return { ok: true, opened: "microsoft-store" };
 }
 
 function normalizeSettingsForVersion(currentVersion) {
@@ -954,8 +782,10 @@ function buildTrayMenu() {
     ...(app.isPackaged
       ? [
           {
-            label: "Güncelleme ara",
-            click: () => runManualUpdateCheck()
+            label: "Microsoft Store'da güncelle",
+            click: () => {
+              void openMicrosoftStoreForUpdates();
+            }
           },
           { type: "separator" }
         ]
@@ -1702,7 +1532,6 @@ if (!app.requestSingleInstanceLock()) {
     await applyServerMode();
     createWindow();
     createTray();
-    setupAutoUpdater();
 
     try {
       globalShortcut.register("CommandOrControl+Shift+K", () => {
@@ -1840,7 +1669,7 @@ if (!app.requestSingleInstanceLock()) {
       void shell.openExternal(url);
       return true;
     });
-    ipcMain.handle("kobichat:check-updates-now", () => runManualUpdateCheck());
+    ipcMain.handle("kobichat:check-updates-now", () => openMicrosoftStoreForUpdates());
     ipcMain.handle("kobichat:download-and-handle", async (_e, payload) => {
       try {
         return await downloadAndHandleAttachment(payload);

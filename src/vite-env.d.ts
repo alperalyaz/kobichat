@@ -41,7 +41,13 @@ interface KobiChatApi {
     profileImage?: string;
     hostname?: string;
   }>;
-  checkUpdatesNow?: () => Promise<{ ok?: boolean; throttled?: boolean; retryAfterMs?: number } | void>;
+  checkUpdatesNow?: () => Promise<{
+    ok?: boolean;
+    throttled?: boolean;
+    retryAfterMs?: number;
+    reason?: string;
+    opened?: string;
+  } | void>;
   getSettings: () => Promise<Record<string, unknown>>;
   saveSettings: (partial: Record<string, unknown>) => Promise<unknown>;
   downloadAndHandle?: (payload: {
