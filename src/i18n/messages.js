@@ -64,8 +64,6 @@ export const MESSAGES = {
     hintNoMessagesToday:
       "Yakın tarihli (ör. bugün veya dün) mesaj görünmüyor. Daha eskiler için üstteki “Geçmiş” düğmesine basabilirsiniz.",
     hintNoMessagesEver: "Henüz mesaj yok. Metin veya dosya gönderebilirsiniz.",
-    chatHistoryTruncatedNotice:
-      "Burada en son {n} kayıt gösteriliyor. Daha eski mesajlar sunucuda saklanıyor olabilir.",
     emojiToolbarAria: "Emoji (yerel SVG)",
     msgLabel: "Mesaj",
     msgPlaceholder: "Mesaj yazın veya dosya sürükleyip bırakın…",
@@ -879,6 +877,8 @@ export const MESSAGES = {
     hintNoMessagesToday:
       "Aún no hay mensajes recientes aquí. Abre la sección de arriba para registros más antiguos.",
     hintNoMessagesEver: "Aún no hay mensajes. Puedes enviar texto o archivos.",
+    chatHistoryTruncatedNotice:
+      "Se muestran los últimos {n} registros. Puede haber mensajes más antiguos en el servidor.",
     emojiToolbarAria: "Emoji (SVG local)",
     msgLabel: "Mensaje",
     msgPlaceholder: "Escribe un mensaje o arrastra y suelta archivos…",
