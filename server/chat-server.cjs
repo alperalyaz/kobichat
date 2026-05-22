@@ -1,6 +1,7 @@
 const fs = require("fs");
 const path = require("path");
 const http = require("http");
+const { Transform } = require("stream");
 const express = require("express");
 const cors = require("cors");
 const multer = require("multer");
@@ -29,6 +30,16 @@ const MAX_QUEUED_PER_RECIPIENT = Math.max(100, Number(process.env.KOBICHAT_MAX_Q
 /** Sliding window: her sokette en fazla bu kadar giden DM (chat + dosya yükleme) sayılır. */
 const DM_SEND_BURST = Math.max(5, Number(process.env.KOBICHAT_DM_SEND_BURST) || 30);
 const DM_SEND_WINDOW_MS = Math.max(5000, Number(process.env.KOBICHAT_DM_SEND_WINDOW_MS) || 60_000);
+/**
+ * Upload bant genişliği sınırı (byte/sn). Varsayılan 5 MB/s = 40 Mbps.
+ * Router belleğini doldurmamak için TCP akış kontrolüyle göndericiyi yavaşlatır.
+ * KOBICHAT_UPLOAD_RATE_BYTES_PER_SEC=0 ile devre dışı bırakılabilir.
+ */
+const UPLOAD_RATE_BYTES_PER_SEC = (() => {
+  const env = process.env.KOBICHAT_UPLOAD_RATE_BYTES_PER_SEC;
+  if (env === "0") return 0;
+  return Math.max(256 * 1024, Number(env) || 5 * 1024 * 1024);
+})();
 /**
  * Phantom delivery koruması: Alıcı socket'i bulduğumuzda mesajı `sent`
  * kaydederiz ve canlı emit yaparız; ancak alıcı tam o anda ağ kesintisi
@@ -275,6 +286,45 @@ function computeFileSha256(filePath) {
     stream.on("error", reject);
     stream.on("end", () => resolve(hash.digest("hex")));
   });
+}
+
+/**
+ * Token-bucket tabanlı upload hız sınırlayıcı.
+ * req.pipe üzerinden geçen veriyi yavaşlatarak TCP geri basıncıyla
+ * göndericiyi de yavaşlatır → router tampon taşması önlenir.
+ */
+function makeUploadThrottle(rateLimit) {
+  let tokens = rateLimit;
+  let lastRefill = Date.now();
+  return new Transform({
+    transform(chunk, _enc, cb) {
+      const now = Date.now();
+      const elapsed = (now - lastRefill) / 1000;
+      lastRefill = now;
+      tokens = Math.min(rateLimit, tokens + elapsed * rateLimit);
+      if (tokens >= chunk.length) {
+        tokens -= chunk.length;
+        this.push(chunk);
+        cb();
+      } else {
+        const delay = Math.ceil(((chunk.length - tokens) / rateLimit) * 1000);
+        tokens = 0;
+        setTimeout(() => { this.push(chunk); cb(); }, delay);
+      }
+    }
+  });
+}
+
+function uploadThrottleMiddleware(req, _res, next) {
+  if (!UPLOAD_RATE_BYTES_PER_SEC) return next();
+  const originalPipe = req.pipe.bind(req);
+  req.pipe = (dest, opts) => {
+    const throttle = makeUploadThrottle(UPLOAD_RATE_BYTES_PER_SEC);
+    throttle.pipe(dest, opts);
+    originalPipe(throttle);
+    return dest;
+  };
+  next();
 }
 
 async function createChatServer(options) {
@@ -684,7 +734,7 @@ async function createChatServer(options) {
     return rows;
   }
 
-  app.post("/api/upload", upload.single("file"), async (req, res) => {
+  app.post("/api/upload", uploadThrottleMiddleware, upload.single("file"), async (req, res) => {
     try {
       if (!ensureLeader()) {
         res.status(503).json({ error: "Lider düğüm yazma için hazır değil" });
