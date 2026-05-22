@@ -1300,7 +1300,7 @@ function resolveWritableDownloadDir() {
  * kullanıldığı için bazı kullanıcılarda sohbet içi `<img src=...>` çalışırken
  * ana işlem indirmesinin başarısız olması (proxy / TLS farkı) giderilir.
  */
-function downloadFileToPath(rawUrl, savePath) {
+function downloadFileToPath(rawUrl, savePath, onProgress) {
   return new Promise((resolve, reject) => {
     const urlStr = String(rawUrl || "").trim();
     let req;
@@ -1325,6 +1325,8 @@ function downloadFileToPath(rawUrl, savePath) {
         reject(new Error(`HTTP ${status}`));
         return;
       }
+      const total = parseInt(response.headers["content-length"] || "0", 10) || 0;
+      let received = 0;
       const out = fs.createWriteStream(savePath);
       let settled = false;
       const fail = (err) => {
@@ -1344,6 +1346,12 @@ function downloadFileToPath(rawUrl, savePath) {
         settled = true;
         resolve(true);
       });
+      if (typeof onProgress === "function" && total > 0) {
+        response.on("data", (chunk) => {
+          received += chunk.length;
+          try { onProgress(received, total); } catch { /* ignored */ }
+        });
+      }
       response.pipe(out);
     });
     req.on("error", reject);
@@ -1351,7 +1359,7 @@ function downloadFileToPath(rawUrl, savePath) {
   });
 }
 
-async function downloadAndHandleAttachment(payload) {
+async function downloadAndHandleAttachment(payload, onProgress) {
   /**
    * Aday URL listesi:
    *  - Yeni protokol: `payload.urls = string[]` — sırayla dene, ilk başarılıda dur.
@@ -1390,7 +1398,9 @@ async function downloadAndHandleAttachment(payload) {
   let allMissing = true;
   for (const u of candidates) {
     try {
-      await downloadFileToPath(u, savePath);
+      await downloadFileToPath(u, savePath, typeof onProgress === "function"
+        ? (received, total) => onProgress(payload?.messageId ?? null, received, total)
+        : undefined);
       broadcastPlaySound("downloadComplete");
       return { ok: true, path: savePath, reused: false };
     } catch (e) {
@@ -1670,9 +1680,15 @@ if (!app.requestSingleInstanceLock()) {
       return true;
     });
     ipcMain.handle("kobichat:check-updates-now", () => openMicrosoftStoreForUpdates());
-    ipcMain.handle("kobichat:download-and-handle", async (_e, payload) => {
+    ipcMain.handle("kobichat:download-and-handle", async (event, payload) => {
       try {
-        return await downloadAndHandleAttachment(payload);
+        const sender = event.sender;
+        const onProgress = (messageId, received, total) => {
+          if (sender && !sender.isDestroyed()) {
+            try { sender.send("kobichat:download-progress", { messageId, received, total }); } catch { /* ignored */ }
+          }
+        };
+        return await downloadAndHandleAttachment(payload, onProgress);
       } catch (e) {
         console.error("Dosya indirme/açma hatası:", e);
         return { ok: false, reason: "download_failed" };

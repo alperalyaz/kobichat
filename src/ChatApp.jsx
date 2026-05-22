@@ -337,7 +337,8 @@ function ChatMessageBubble({
   onImagePreview,
   statusState,
   avatarImage,
-  avatarName
+  avatarName,
+  downloadProgress
 }) {
   const { t, locale } = useI18n();
   const timeLabel = formatMsgTime(m.created_at, locale);
@@ -452,35 +453,47 @@ function ChatMessageBubble({
                       {m.file_mime ? <span className="msg-file-card__mime">{m.file_mime}</span> : null}
                     </div>
                   </div>
-                  <button
-                    type="button"
-                    className="msg-file-card__action"
-                    onClick={() => {
-                      if (showPreviewAction) {
-                        onImagePreview?.({
+                  {downloadProgress ? (() => {
+                    const pct = Math.min(100, Math.round(downloadProgress.received / downloadProgress.total * 100));
+                    return (
+                      <div className="msg-file-progress" aria-label={`${pct}%`}>
+                        <div className="msg-file-progress__track">
+                          <div className="msg-file-progress__fill" style={{ width: `${pct}%` }} />
+                        </div>
+                        <span className="msg-file-progress__pct">{pct}%</span>
+                      </div>
+                    );
+                  })() : (
+                    <button
+                      type="button"
+                      className="msg-file-card__action"
+                      onClick={() => {
+                        if (showPreviewAction) {
+                          onImagePreview?.({
+                            url: filePublicUrl(m.file_rel),
+                            title: displayFileName || t("fileFallback"),
+                            mime: m.file_mime || ""
+                          });
+                          return;
+                        }
+                        if (showOpenAction && hasLocalFile) {
+                          onOpenDownloaded?.(localPath);
+                          return;
+                        }
+                        onDownloadAttachment?.({
+                          messageId: m.id,
+                          fileSize: m.file_size,
                           url: filePublicUrl(m.file_rel),
-                          title: displayFileName || t("fileFallback"),
-                          mime: m.file_mime || ""
+                          filename: displayFileName || t("fileFallback"),
+                          mime: m.file_mime || "",
+                          fileRel: m.file_rel || "",
+                          openAfter: showOpenAction
                         });
-                        return;
-                      }
-                      if (showOpenAction && hasLocalFile) {
-                        onOpenDownloaded?.(localPath);
-                        return;
-                      }
-                      onDownloadAttachment?.({
-                        messageId: m.id,
-                        fileSize: m.file_size,
-                        url: filePublicUrl(m.file_rel),
-                        filename: displayFileName || t("fileFallback"),
-                        mime: m.file_mime || "",
-                        fileRel: m.file_rel || "",
-                        openAfter: showOpenAction
-                      });
-                    }}
-                  >
-                    {actionLabel}
-                  </button>
+                      }}
+                    >
+                      {actionLabel}
+                    </button>
+                  )}
                 </div>
                 {isImageMime(m.file_mime) && m.file_rel ? (
                   <img
@@ -551,6 +564,8 @@ export default function ChatApp() {
   const [attachmentPreview, setAttachmentPreview] = useState(null);
   /** Electron: indirilen dosyanın tam yolu (mesaj id → path) */
   const [localDownloadByMessageId, setLocalDownloadByMessageId] = useState({});
+  /** Electron: aktif indirme ilerlemesi (mesaj id → { received, total }) */
+  const [downloadProgress, setDownloadProgress] = useState({});
   const [pendingImageUpload, setPendingImageUpload] = useState(null);
   /**
    * Yükleme akışı sayaçları:
@@ -749,6 +764,16 @@ export default function ChatApp() {
       if (typeof unsub === "function") unsub();
     };
   }, [t, setLang]);
+
+  useEffect(() => {
+    if (!window.kobiChat?.onDownloadProgress) return;
+    const unsub = window.kobiChat.onDownloadProgress(({ messageId, received, total }) => {
+      if (messageId == null) return;
+      const key = String(messageId);
+      setDownloadProgress((prev) => ({ ...prev, [key]: { received, total } }));
+    });
+    return () => typeof unsub === "function" && unsub();
+  }, []);
 
   const convIdMemo = useMemo(() => {
     if (!clientUuid || !peerClientUuid) return null;
@@ -1588,6 +1613,9 @@ export default function ChatApp() {
         const ok = typeof res === "boolean" ? res : Boolean(res?.ok);
         const reason = typeof res === "object" && res ? String(res.reason || "") : "";
         const savedPath = typeof res === "object" && res?.path ? String(res.path) : "";
+        if (messageId != null) {
+          setDownloadProgress((prev) => { const n = { ...prev }; delete n[String(messageId)]; return n; });
+        }
         if (ok && savedPath && messageId != null) {
           setLocalDownloadByMessageId((prev) => ({ ...prev, [String(messageId)]: savedPath }));
         }
@@ -2062,6 +2090,7 @@ export default function ChatApp() {
                     statusState={statusStateForMessage(m)}
                     avatarImage={isMineMessage(m) ? myProfileImage : peerProfileImage}
                     avatarName={isMineMessage(m) ? displayName : peerName}
+                    downloadProgress={downloadProgress[String(m.id)] || null}
                   />
                 ))
               )}
@@ -2404,6 +2433,7 @@ export default function ChatApp() {
                         statusState={statusStateForMessage(m)}
                         avatarImage={isMineMessage(m) ? myProfileImage : peerProfileImage}
                         avatarName={isMineMessage(m) ? displayName : peerName}
+                        downloadProgress={downloadProgress[String(m.id)] || null}
                       />
                     ))}
                   </React.Fragment>

@@ -1475,6 +1475,38 @@ html[data-theme="dark"] .msg-avatar--fallback {
   border-color: rgba(56, 189, 248, 0.55);
 }
 
+.msg-file-progress {
+  flex-shrink: 0;
+  width: 72px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+
+.msg-file-progress__track {
+  width: 100%;
+  height: 5px;
+  border-radius: 3px;
+  background: rgba(14, 165, 233, 0.18);
+  overflow: hidden;
+}
+
+.msg-file-progress__fill {
+  height: 100%;
+  background: var(--accent);
+  border-radius: 3px;
+  transition: width 0.15s ease;
+  min-width: 4px;
+}
+
+.msg-file-progress__pct {
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: var(--accent);
+  letter-spacing: 0.02em;
+}
+
 .msg-file-expired {
   font-size: 0.85rem;
   color: var(--muted);
