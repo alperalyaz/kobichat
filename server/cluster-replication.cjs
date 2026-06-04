@@ -34,8 +34,25 @@ function createClusterReplication({ db, saveDb, nodeId, quorumSize = 1 }) {
     );
   `);
 
+  /**
+   * Kanonik (anahtarı sıralı) JSON. Idempotency anahtarı bunun hash'inden
+   * türetildiğinden, mantıken aynı ama anahtar sırası farklı payload'lar
+   * (`{a,b}` vs `{b,a}`) AYNI hash'i üretmeli; aksi halde dedup başarısız olur
+   * ve mükerrer log kaydı oluşur. JSON.stringify ekleme sırasını koruduğu için
+   * burada anahtarları özyinelemeli olarak sıralarız.
+   */
   function stableJson(x) {
-    return JSON.stringify(x ?? {});
+    const seen = new WeakSet();
+    const sort = (v) => {
+      if (v === null || typeof v !== "object") return v;
+      if (seen.has(v)) return null; // döngüsel referansları kır
+      seen.add(v);
+      if (Array.isArray(v)) return v.map(sort);
+      const out = {};
+      for (const key of Object.keys(v).sort()) out[key] = sort(v[key]);
+      return out;
+    };
+    return JSON.stringify(sort(x ?? {}));
   }
 
   function appendLog({ logType, idempotencyKey, payload, term = 0 }) {
@@ -72,6 +89,13 @@ function createClusterReplication({ db, saveDb, nodeId, quorumSize = 1 }) {
   }) {
     const k = String(eventKey || "").trim();
     if (!k || messageId == null) return { ok: false };
+    /**
+     * `message_id` sütunu INTEGER NOT NULL. `Number("abc")` → NaN, sql.js bunu
+     * NULL bağlar ve NOT NULL ihlaliyle patlar (ya da bozuk veri yazar).
+     * Sayıya çevrilemeyen messageId'yi baştan reddet.
+     */
+    const numericMessageId = Number(messageId);
+    if (!Number.isFinite(numericMessageId)) return { ok: false };
     const check = db.prepare("SELECT id FROM message_status_events WHERE event_key = ?");
     check.bind([k]);
     const has = check.step();
@@ -83,7 +107,7 @@ function createClusterReplication({ db, saveDb, nodeId, quorumSize = 1 }) {
        VALUES (?, ?, ?, ?, ?, ?, ?)`,
       [
         k,
-        Number(messageId),
+        numericMessageId,
         convId ? String(convId) : null,
         String(status || ""),
         readerSocketId ? String(readerSocketId) : null,

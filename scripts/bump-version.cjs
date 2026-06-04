@@ -60,7 +60,11 @@ function main() {
   }
 
   raw.version = after;
-  fs.writeFileSync(PKG_PATH, JSON.stringify(raw, null, 2) + "\n", "utf8");
+  // Atomik yazma: önce geçici dosya, sonra rename. Yazma sırasında kesinti
+  // olsa bile package.json yarım/bozuk kalmaz (proje derlenebilir kalır).
+  const tmpPath = `${PKG_PATH}.tmp`;
+  fs.writeFileSync(tmpPath, JSON.stringify(raw, null, 2) + "\n", "utf8");
+  fs.renameSync(tmpPath, PKG_PATH);
   console.log(`Sürüm güncellendi: ${before} → ${after}`);
 }
 

@@ -217,9 +217,24 @@ function mergeMessageListsById(incoming, previous) {
   for (const m of previous) {
     if (m?.id != null && !map.has(String(m.id))) map.set(String(m.id), m);
   }
-  return Array.from(map.values()).sort(
-    (a, b) => new Date(a.created_at) - new Date(b.created_at)
-  );
+  return Array.from(map.values()).sort((a, b) => {
+    const dt = new Date(a.created_at) - new Date(b.created_at);
+    if (dt !== 0) return dt;
+    /**
+     * Aynı milisaniyedeki mesajlar (örn. kuyruktan toplu akış) için yalnızca
+     * created_at kararsız sıralama veriyordu. Sunucu id'si monotonik artar;
+     * ikincil anahtar olarak sayısal id ile sırala (yerel `local-*` id'leri
+     * en sona düşsün ki kendi anlık mesajım gerçek kaydının üstüne çıkmasın).
+     */
+    const an = Number(a.id);
+    const bn = Number(b.id);
+    const aNum = Number.isFinite(an);
+    const bNum = Number.isFinite(bn);
+    if (aNum && bNum) return an - bn;
+    if (aNum) return -1;
+    if (bNum) return 1;
+    return 0;
+  });
 }
 
 function clampDisplayName(s) {
@@ -993,7 +1008,14 @@ export default function ChatApp() {
       }
       if (incoming) {
         const k = `snd-${fromSocket}-${msg.id}`;
-        if (!soundPlayedForRef.current.has(k)) {
+        /**
+         * `was_queued`: alıcı çevrimiçi olunca sunucu kuyruktaki TÜM mesajları
+         * (onlarca olabilir) ardışık `message:new` olarak fırlatır. Her biri
+         * için ayrı yumuşak ses çalmak rahatsız edici olur; toplu akışta sesi
+         * bastırırız (mesajlar yine listede belirir, roster penceresi de peer
+         * başına tek özet dikkat sinyali verir).
+         */
+        if (!msg?.was_queued && !soundPlayedForRef.current.has(k)) {
           soundPlayedForRef.current.add(k);
           playSound("messageIncomingSoft");
         }

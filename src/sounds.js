@@ -301,14 +301,26 @@ export function playSound(name) {
   const cachedBlobUrl = blobUrlCache.get(def.file);
   const targetVolume = clampVolume(prefs.volume);
 
+  /**
+   * Çalma hiç başlamazsa (autoplay engeli, blob yüklenememesi vb.) throttle
+   * zaman damgasını geri al; aksi halde aslında hiç duyulmamış bir "deneme"
+   * yüzünden sonraki gerçek bildirim throttle süresince sessizce bastırılır.
+   * Geri alma yalnızca BAŞARISIZLIKTA çalışır → çift ses riski yoktur.
+   */
+  const rollbackThrottle = () => {
+    if (lastPlayedAt.get(name) === now) lastPlayedAt.set(name, prev);
+  };
+
   const playFromUrl = (src, srcKind) => {
     try {
       const player = new Audio(src);
       player.preload = "auto";
       player.volume = targetVolume;
       const p = player.play();
-      if (p && typeof p.catch === "function") p.catch(() => {});
-    } catch {}
+      if (p && typeof p.catch === "function") p.catch(() => rollbackThrottle());
+    } catch {
+      rollbackThrottle();
+    }
   };
 
   if (cachedBlobUrl) {

@@ -23,12 +23,23 @@ export function detectBrowserLang() {
   return normalizeLang(navigator.language || "tr");
 }
 
+/** Regex metakarakterlerini kaçışla — param anahtarı desene güvenle gömülsün. */
+function escapeRegExp(s) {
+  return String(s).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
 function translate(lang, key, params) {
   const table = MESSAGES[lang] || MESSAGES.tr;
   let str = table[key] ?? MESSAGES.tr[key] ?? key;
   if (params && typeof str === "string") {
     for (const [k, v] of Object.entries(params)) {
-      str = str.replace(new RegExp(`\\{${k}\\}`, "g"), String(v));
+      /**
+       * Değeri fonksiyon-replacement ile geç: aksi halde değer içindeki
+       * `$&`, `$1` gibi diziler özel replacement deseni sayılıp yanlış çıktı
+       * üretir (örn. `$` içeren kullanıcı adları). Anahtar da kaçışlanır.
+       */
+      const replacement = String(v);
+      str = str.replace(new RegExp(`\\{${escapeRegExp(k)}\\}`, "g"), () => replacement);
     }
   }
   return str;

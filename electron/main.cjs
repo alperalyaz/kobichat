@@ -55,6 +55,16 @@ let settingsStore = null;
 let appQuitting = false;
 let lastServerErrorKey = "";
 let lastServerErrorAt = 0;
+/**
+ * Yerel port doluysa (aynı makinede başka bir KobiChat sunucusu açık) bu oturum
+ * istemci moduna düşer. Eskiden bu seçim `serverMode: "remote"` olarak kalıcı
+ * yazılıyordu; kullanıcının seçmediği bir mod diske işleniyor ve karşı sunucu
+ * kapansa bile sonraki açılışlar remote/127.0.0.1'e kilitli kalıyordu. Artık
+ * yalnızca oturum-içi (RAM) bir override tutuyoruz; kalıcı ayar değişmez ve her
+ * açılış yerel modu yeniden dener.
+ * @type {{ remoteHost: string, remotePort: number } | null}
+ */
+let runtimeRemoteFallback = null;
 /** Titreşim (poke) — yalnızca ilgili sohbet penceresi; çift tetiklemeyi sınırlar. */
 let lastAttentionShakeAt = 0;
 /** Görev çubuğu yanıp sönme döngüleri — pencere odaklanınca iptal edilir. */
@@ -374,10 +384,17 @@ function loadTrayImage() {
 function buildConfig() {
   const s = settingsStore.getAll();
   const localPort = Number(s.localPort) || DEFAULT_PORT;
-  const remotePort = Number(s.remotePort) || DEFAULT_PORT;
   /** Tek merkezi sunucu: uzak modda tüm istemciler `remoteHost:remotePort` adresine bağlanır. */
-  const isRemote = String(s.serverMode || "local").toLowerCase() === "remote";
-  const remoteHost = String(s.remoteHost || "").trim();
+  // Oturum-içi fallback (yerel port doluydu) kalıcı ayarı ezmeden remote'a yönlendirir.
+  const isRemote = runtimeRemoteFallback
+    ? true
+    : String(s.serverMode || "local").toLowerCase() === "remote";
+  const remoteHost = runtimeRemoteFallback
+    ? runtimeRemoteFallback.remoteHost
+    : String(s.remoteHost || "").trim();
+  const remotePort = runtimeRemoteFallback
+    ? runtimeRemoteFallback.remotePort
+    : Number(s.remotePort) || DEFAULT_PORT;
   const socketUrl = isRemote && remoteHost
     ? `http://${remoteHost}:${remotePort}`
     : `http://127.0.0.1:${localPort}`;
@@ -385,7 +402,7 @@ function buildConfig() {
     socketUrl,
     displayName: s.displayName,
     clientUuid: s.clientUuid,
-    serverMode: s.serverMode,
+    serverMode: runtimeRemoteFallback ? "remote" : s.serverMode,
     localPort: s.localPort,
     remoteHost: s.remoteHost,
     remotePort: s.remotePort,
@@ -850,11 +867,26 @@ function startChatServerFromSettings() {
       .then((instance) => {
         chatInstance = instance;
         const port = s.localPort || DEFAULT_PORT;
-        chatInstance.listen("0.0.0.0", port, () => {
-          resolve();
-        });
+        /**
+         * `error` dinleyicisi `listen`'den ÖNCE bağlanmalı: EADDRINUSE çoğu
+         * platformda listen callback'inden önce/aynı tick'te tetiklenir.
+         * `settled` bayrağı hem ilk-settle yarışını (error vs listen) çözer
+         * hem de promise çözüldükten sonra gelen çalışma-zamanı hatalarının
+         * sessizce yutulmasını engeller (loglanır).
+         */
+        let settled = false;
         chatInstance.server.on("error", (err) => {
+          if (settled) {
+            console.error("[kobichat] chat-server runtime error:", err?.message || err);
+            return;
+          }
+          settled = true;
           reject(err);
+        });
+        chatInstance.listen("0.0.0.0", port, () => {
+          if (settled) return;
+          settled = true;
+          resolve();
         });
       })
       .catch(reject);
@@ -863,6 +895,8 @@ function startChatServerFromSettings() {
 
 async function applyServerMode() {
   await stopChatServer();
+  // Her uygulama her çağrıda yeniden değerlendirilir; eski oturum-içi fallback sıfırlanır.
+  runtimeRemoteFallback = null;
   const s = settingsStore.getAll();
   if (String(s.serverMode || "local").toLowerCase() !== "local") {
     broadcastConfig();
@@ -876,12 +910,9 @@ async function applyServerMode() {
     const isAddrInUse = msg.includes("EADDRINUSE");
     if (isAddrInUse) {
       // Aynı makinede zaten çalışan bir sunucu varsa, bu instance'ı istemciye düşür.
+      // Kalıcı ayarı DEĞİŞTİRMEDEN yalnızca bu oturum için remote'a yönlendir.
       const fallbackPort = Number(s.localPort) || DEFAULT_PORT;
-      settingsStore.save({
-        serverMode: "remote",
-        remoteHost: "127.0.0.1",
-        remotePort: fallbackPort
-      });
+      runtimeRemoteFallback = { remoteHost: "127.0.0.1", remotePort: fallbackPort };
       if (mainWindow && !mainWindow.isDestroyed()) {
         const key = `addrinuse:${fallbackPort}`;
         const now = Date.now();
@@ -1133,7 +1164,17 @@ function openChatWindowFromPayload(payload) {
   return { ok: true, created: true };
 }
 
+/**
+ * Tüm pencereler aynı (varsayılan) oturumu paylaşıyor. `attachDownloadReveal`
+ * her pencere oluşturulduğunda çağrıldığından, korumasız bırakılırsa aynı
+ * oturuma N adet `will-download` dinleyicisi birikir ve tek bir indirme
+ * `showItemInFolder`'ı N kez tetikler (klasör arka arkaya açılır). WeakSet ile
+ * her oturuma yalnızca bir kez bağlanırız.
+ */
+const downloadRevealAttachedSessions = new WeakSet();
 function attachDownloadReveal(session) {
+  if (!session || downloadRevealAttachedSessions.has(session)) return;
+  downloadRevealAttachedSessions.add(session);
   session.on("will-download", (_event, item) => {
     item.once("done", (_e, state) => {
       if (state !== "completed") return;
@@ -1739,6 +1780,19 @@ if (!app.requestSingleInstanceLock()) {
         showRosterWindow();
       }
     });
+  }).catch((e) => {
+    /**
+     * Başlatma zincirinde yakalanmamış bir reddetme olursa (örn. ayar deposu
+     * açılamadı), eskiden uygulama sessizce hiç pencere oluşturmadan asılı
+     * kalıyordu. Hatayı kullanıcıya göster ve düzgün şekilde çık.
+     */
+    console.error("KobiChat başlatma hatası:", e);
+    try {
+      dialog.showErrorBox("KobiChat başlatılamadı", String(e?.message || e || "Bilinmeyen hata"));
+    } catch {
+      // ignored
+    }
+    app.quit();
   });
 
   app.on("will-quit", () => {

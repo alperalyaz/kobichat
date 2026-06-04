@@ -69,10 +69,12 @@ async function main() {
   }
   const first = messages[0];
   const last = messages[messages.length - 1];
-  if (!String(first?.text_content || "").includes("msg-20")) {
+  // Tam eşleşme: substring `includes("msg-20")` aynı zamanda "msg-200" vb.
+  // ile de eşleşirdi (kırılgan yanlış-pozitif). Birebir karşılaştır.
+  if (String(first?.text_content || "") !== "msg-20") {
     throw new Error(`expected oldest in window msg-20, got ${first?.text_content}`);
   }
-  if (!String(last?.text_content || "").includes("msg-119")) {
+  if (String(last?.text_content || "") !== "msg-119") {
     throw new Error(`expected newest msg-119, got ${last?.text_content}`);
   }
   for (let i = 1; i < messages.length; i++) {

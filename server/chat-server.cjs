@@ -784,19 +784,35 @@ async function createChatServer(options) {
         res.status(409).json({ error: "Gönderen oturumu geçersiz veya güncel değil" });
         return;
       }
+      /**
+       * Bu noktadan sonra dosya zaten diske yazılmış durumda. Erken `return`
+       * yollarında (mükerrer, kuyruk dolu, hız sınırı) dosya bir DB satırıyla
+       * ilişkilendirilmediği için `purgeExpiredFileAttachments` onu asla
+       * temizlemez → kalıcı yetim dosya. Reddetmeden önce diskten sileriz.
+       */
+      const discardUploadedFile = () => {
+        try {
+          fs.unlinkSync(req.file.path);
+        } catch {
+          // ignored
+        }
+      };
       const clientMsgId = String(req.body.clientMsgId || randomUUID()).trim().slice(0, 120);
       if (hasMessageByClientMsgId(clientMsgId)) {
+        discardUploadedFile();
         res.json({ ok: true, duplicate: true });
         return;
       }
       const resolvedTo = resolvePeerSocketId(toSocketId, peerClientUuid);
       if (!resolvedTo && countQueuedForRecipient(peerClientUuid) >= MAX_QUEUED_PER_RECIPIENT) {
+        discardUploadedFile();
         res.status(429).json({
           error: `Alıcı çevrimdışı ve bekleyen mesaj kuyruğu dolu (en fazla ${MAX_QUEUED_PER_RECIPIENT}).`
         });
         return;
       }
       if (!allowOutboundDm(fromSocketId)) {
+        discardUploadedFile();
         res.status(429).json({
           error: `Çok hızlı mesaj veya dosya gönderiyorsunuz (en fazla ${DM_SEND_BURST} işlem / ${Math.round(DM_SEND_WINDOW_MS / 1000)} sn).`
         });
@@ -1040,6 +1056,23 @@ async function createChatServer(options) {
       const senderSocketId =
         (senderClientUuid && resolvePeerSocketId("", senderClientUuid)) || hint || "";
       if (!senderSocketId || messageId == null) return;
+      /**
+       * Sahiplik doğrulaması (yumuşak): okundu bilgisini yalnızca mesajın
+       * GERÇEK alıcısı işaretleyebilmeli. Çağıran soketin presence kimliği ve
+       * mesajın `to_client_uuid` alanı biliniyorsa ve uyuşmuyorsa yok say.
+       * Bilinmiyorsa (eski kayıt / presence yok) eski davranışı korur.
+       */
+      const callerUuid = normalizeClientUuid(presence.get(socket.id)?.clientUuid || "");
+      if (callerUuid) {
+        const ownStmt = db.prepare("SELECT to_client_uuid FROM messages WHERE id = ?");
+        ownStmt.bind([Number(messageId)]);
+        let recipientUuid = "";
+        if (ownStmt.step()) {
+          recipientUuid = normalizeClientUuid(ownStmt.getAsObject().to_client_uuid || "");
+        }
+        ownStmt.free();
+        if (recipientUuid && recipientUuid !== callerUuid) return;
+      }
       const now = new Date().toISOString();
       db.run(
         `UPDATE messages SET delivery_state = 'read', read_at = COALESCE(read_at, ?), delivered_at = COALESCE(delivered_at, ?) WHERE id = ?`,
@@ -1441,11 +1474,21 @@ async function createChatServer(options) {
     }
   }
 
+  /**
+   * Periyodik bakım zamanlayıcıları. `close()` bunları temizlemezse, sunucu
+   * kapatıldıktan (db.close()) sonra interval'lar tetiklenmeye devam eder ve
+   * serbest bırakılmış sql.js belleğine erişip "out of memory" hatası fırlatır.
+   * Electron'da sunucu modu (yerel↔uzak) her değiştiğinde bu sızıntı birikir.
+   */
+  let filePurgeTimer = null;
+  let ackReconcileTimer = null;
+
   let filePurgeScheduled = false;
   function scheduleFilePurge() {
     if (filePurgeScheduled) return;
     filePurgeScheduled = true;
     const run = () => {
+      if (isShuttingDown) return;
       try {
         purgeExpiredFileAttachments();
       } catch (e) {
@@ -1458,7 +1501,9 @@ async function createChatServer(options) {
       }
     };
     run();
-    setInterval(run, 60 * 60 * 1000);
+    filePurgeTimer = setInterval(run, 60 * 60 * 1000);
+    /** Tek başına çalışan zamanlayıcı süreci canlı tutmasın (test/temiz çıkış). */
+    if (typeof filePurgeTimer.unref === "function") filePurgeTimer.unref();
   }
 
   let ackReconcileScheduled = false;
@@ -1466,13 +1511,15 @@ async function createChatServer(options) {
     if (ackReconcileScheduled) return;
     ackReconcileScheduled = true;
     const run = () => {
+      if (isShuttingDown) return;
       try {
         reconcileUndeliveredSentMessages();
       } catch (e) {
         console.error("reconcileUndeliveredSentMessages:", e);
       }
     };
-    setInterval(run, ACK_RECONCILE_INTERVAL_MS);
+    ackReconcileTimer = setInterval(run, ACK_RECONCILE_INTERVAL_MS);
+    if (typeof ackReconcileTimer.unref === "function") ackReconcileTimer.unref();
   }
 
   return {
@@ -1491,6 +1538,16 @@ async function createChatServer(options) {
     },
     close(cb) {
       isShuttingDown = true;
+      // Bakım zamanlayıcılarını db.close()'tan ÖNCE durdur; aksi halde kapalı
+      // veritabanına erişip hata fırlatırlar ve süreç çıkışını engellerler.
+      if (filePurgeTimer) {
+        clearInterval(filePurgeTimer);
+        filePurgeTimer = null;
+      }
+      if (ackReconcileTimer) {
+        clearInterval(ackReconcileTimer);
+        ackReconcileTimer = null;
+      }
       io.close(() => {
         server.close(() => {
           try {

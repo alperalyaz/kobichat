@@ -13,7 +13,16 @@ export default function QuickMessagesApp() {
 
   useEffect(() => {
     applyThemeToDocument(getStoredTheme());
-    const sync = () => applyThemeToDocument(getStoredTheme());
+    const sync = () => {
+      applyThemeToDocument(getStoredTheme());
+      /**
+       * Hızlı mesajlar başka bir pencerede düzenlenmiş olabilir. Eskiden bu
+       * pencere değişikliği hiç almıyordu ve sonraki tuş vuruşunda diğerinin
+       * kaydını eziyordu (veri kaybı). Her düzenleme anında localStorage'a
+       * yazıldığından, dış değişiklikte yeniden yüklemek güvenlidir.
+       */
+      setRows(loadQuickMessages());
+    };
     window.addEventListener("storage", sync);
     window.addEventListener("focus", sync);
     return () => {

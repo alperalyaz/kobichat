@@ -51,24 +51,49 @@ async function openSettingsStore(userDataPath) {
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
   const dbPath = path.join(dir, "client-settings.db");
 
-  let db;
-  if (fs.existsSync(dbPath)) {
-    const buf = fs.readFileSync(dbPath);
-    db = new SQL.Database(buf);
-  } else {
-    db = new SQL.Database();
-  }
-
-  db.exec(`
+  const CREATE_TABLE_SQL = `
     CREATE TABLE IF NOT EXISTS settings (
       key TEXT PRIMARY KEY,
       value TEXT NOT NULL
     );
-  `);
+  `;
 
+  let db = null;
+  if (fs.existsSync(dbPath)) {
+    try {
+      const buf = fs.readFileSync(dbPath);
+      const candidate = new SQL.Database(buf);
+      // Bozuk/yarım yazılmış dosyalar bazen yapıcıda değil ilk sorguda patlar.
+      candidate.exec(CREATE_TABLE_SQL);
+      db = candidate;
+    } catch (e) {
+      console.error(
+        "client-settings.db okunamadı/bozuk; yedeklenip sıfırdan oluşturuluyor:",
+        e?.message || e
+      );
+      try {
+        fs.renameSync(dbPath, `${dbPath}.corrupt-${Date.now()}`);
+      } catch {
+        // yedeklenemezse de devam et; aşağıda taze DB ile açılır
+      }
+      db = null;
+    }
+  }
+  if (!db) {
+    db = new SQL.Database();
+    db.exec(CREATE_TABLE_SQL);
+  }
+
+  /**
+   * Atomik yazma: önce geçici dosyaya yaz, sonra rename ile yerine koy.
+   * Yazma sırasında çökme/elektrik kesintisi olsa bile asıl dosya ya eski
+   * (tutarlı) ya da yeni (tam) haldedir; yarım/bozuk kalmaz.
+   */
   const saveDb = () => {
     const data = db.export();
-    fs.writeFileSync(dbPath, Buffer.from(data));
+    const tmpPath = `${dbPath}.tmp`;
+    fs.writeFileSync(tmpPath, Buffer.from(data));
+    fs.renameSync(tmpPath, dbPath);
   };
 
   function get(key) {
@@ -82,11 +107,16 @@ async function openSettingsStore(userDataPath) {
     return v;
   }
 
-  function set(key, value) {
+  /** Yalnızca bellekteki DB'ye yazar; diske flush etmez (toplu yazımlar için). */
+  function setValue(key, value) {
     /** Object/array gibi yapısal değerleri JSON olarak yaz; aksi halde primitive stringify. */
     const serialized =
       value !== null && typeof value === "object" ? JSON.stringify(value) : String(value);
     db.run("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)", [key, serialized]);
+  }
+
+  function set(key, value) {
+    setValue(key, value);
     saveDb();
   }
 
@@ -182,6 +212,7 @@ async function openSettingsStore(userDataPath) {
   function getAll() {
     const out = { ...DEFAULTS };
     const crypto = require("crypto");
+    let dirty = false;
     for (const k of Object.keys(DEFAULTS)) {
       const v = get(k);
       if (v !== undefined) out[k] = coerce(k, v);
@@ -189,32 +220,41 @@ async function openSettingsStore(userDataPath) {
     if (!out.displayName || !String(out.displayName).trim()) {
       const hn = String(os.hostname() || "").trim() || "Kullanıcı";
       out.displayName = hn.slice(0, 21);
-      set("displayName", out.displayName);
+      setValue("displayName", out.displayName);
+      dirty = true;
     }
     if (!out.clientUuid || !String(out.clientUuid).trim()) {
       out.clientUuid = crypto.randomUUID().toLowerCase();
-      set("clientUuid", out.clientUuid);
+      setValue("clientUuid", out.clientUuid);
+      dirty = true;
     } else {
       const lo = String(out.clientUuid).trim().toLowerCase();
       if (lo !== String(out.clientUuid).trim()) {
         out.clientUuid = lo;
-        set("clientUuid", lo);
+        setValue("clientUuid", lo);
+        dirty = true;
       }
     }
     if (!out.nodeId || !String(out.nodeId).trim()) {
       out.nodeId = crypto.randomUUID();
-      set("nodeId", out.nodeId);
+      setValue("nodeId", out.nodeId);
+      dirty = true;
     }
     const targetClusterId = CLUSTER_ID_DEFAULT;
     const targetSecret = CLUSTER_SECRET_DEFAULT;
     if (String(out.clusterId || "") !== targetClusterId) {
       out.clusterId = targetClusterId;
-      set("clusterId", out.clusterId);
+      setValue("clusterId", out.clusterId);
+      dirty = true;
     }
     if (String(out.sharedSecret || "") !== targetSecret) {
       out.sharedSecret = targetSecret;
-      set("sharedSecret", out.sharedSecret);
+      setValue("sharedSecret", out.sharedSecret);
+      dirty = true;
     }
+    // Eskiden her eksik alan ayrı bir tam-DB diske yazımı tetikliyordu;
+    // artık değişiklikleri biriktirip tek seferde flush ediyoruz.
+    if (dirty) saveDb();
     return out;
   }
 
@@ -224,9 +264,12 @@ async function openSettingsStore(userDataPath) {
     if (next.serverMode !== "local" && next.serverMode !== "remote") {
       next.serverMode = DEFAULTS.serverMode;
     }
+    // Tüm anahtarları belleğe yaz, sonra TEK diske flush. Eskiden her anahtar
+    // ayrı bir tam-DB yazımı yapıyordu (~18+ yazma / save çağrısı).
     for (const k of Object.keys(DEFAULTS)) {
-      if (next[k] !== undefined) set(k, next[k]);
+      if (next[k] !== undefined) setValue(k, next[k]);
     }
+    saveDb();
     return getAll();
   }
 
