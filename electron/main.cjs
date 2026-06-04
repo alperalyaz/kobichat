@@ -1027,17 +1027,18 @@ function isAnyAppWindowFocused() {
 }
 
 /**
- * Gelen mesaj bildirimi için akıllı pencere açma:
- * - Başka bir pencere odaktaysa → arka planda göster + görev çubuğunda yanıp söndür
- * - Hiçbir pencere odakta değilse → ön plana getir
+ * Gelen mesaj bildirimi için pencere açma/gösterme.
+ *
+ * ÖNEMLİ: Bu yol ASLA pencereyi odaklamaz (focus/aktif etmez). Aksi halde
+ * alıcı bilgisayar başında olmasa bile pencere odaklı açılır; renderer bunu
+ * "kullanıcı mesajı görüyor" sayıp okundu (çift/mavi tik) bildirimi gönderir
+ * ve gönderen mesajın okunduğunu sanır. Pencere yalnızca görünür olur ve görev
+ * çubuğunda yanıp söner; okundu bilgisi YALNIZCA kullanıcı pencereye tıklayıp
+ * odakladığında (gerçek `focus` event'i) iletilir.
  */
 function smartShowForIncoming(win) {
   if (!win || win.isDestroyed()) return;
-  if (isAnyAppWindowFocused()) {
-    showWindowInBackground(win);
-  } else {
-    bringWindowToFront(win);
-  }
+  showWindowInBackground(win);
 }
 
 /**
