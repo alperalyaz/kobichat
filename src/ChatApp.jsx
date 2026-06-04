@@ -1969,6 +1969,27 @@ export default function ChatApp() {
     await uploadFiles(files);
   };
 
+  /**
+   * Resim gönderme onay modalı açıkken Enter → "Gönder". Capture aşamasında
+   * yakalanır ve durdurulur ki composer'ın Enter-ile-gönder davranışını
+   * tetiklemesin (yanlışlıkla metin mesajı gitmesin). Shift/Ctrl/Alt/Meta ve
+   * IME bileşimi (isComposing) hariç tutulur. (Escape zaten "Vazgeç"i çalıştırır.)
+   */
+  useEffect(() => {
+    if (!pendingImageUpload) return undefined;
+    const onEnterConfirm = (e) => {
+      if (e.key !== "Enter" || e.shiftKey || e.ctrlKey || e.altKey || e.metaKey || e.isComposing) {
+        return;
+      }
+      e.preventDefault();
+      e.stopPropagation();
+      void confirmPendingImageUpload();
+    };
+    document.addEventListener("keydown", onEnterConfirm, true);
+    return () => document.removeEventListener("keydown", onEnterConfirm, true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingImageUpload]);
+
   const onPaste = async (e) => {
     const items = e.clipboardData?.items;
     if (!items) return;
