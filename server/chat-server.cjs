@@ -419,7 +419,12 @@ async function createChatServer(options) {
       pokeSendAck: true,
       pid: process.pid,
       cwd: process.cwd(),
-      script: process.argv[1] || ""
+      script: process.argv[1] || "",
+      /** Sağlık kontrolü: tarayıcıdan açıp sunucunun ayakta olduğunu görmek için. */
+      ok: true,
+      uptimeSeconds: Math.round(process.uptime()),
+      onlineUsers: presence.size,
+      serverTime: new Date().toISOString()
     });
   });
 
@@ -945,6 +950,20 @@ async function createChatServer(options) {
   io.on("connection", (socket) => {
     socket.emit("presence:roster", rosterPayload());
 
+    /**
+     * Bağlantı yaşam döngüsü logu (connections.jsonl): aralıklı kopma
+     * sorunlarını teşhis için. `transport` polling/websocket ayrımını,
+     * disconnect `reason` ise kopma sebebini (transport close = ağ koptu,
+     * ping timeout = ağ yavaş/tıkalı) gösterir.
+     */
+    socket.data.connectedAt = Date.now();
+    appendJsonlLog(logDir, "connections.jsonl", {
+      event: "connect",
+      socketId: socket.id,
+      transport: socket.conn?.transport?.name || "",
+      ip: socket.handshake?.address || ""
+    });
+
     socket.on("presence:join", (data) => {
       const name =
         typeof data?.displayName === "string" ? data.displayName.slice(0, 21) : "Anonim";
@@ -1294,8 +1313,17 @@ async function createChatServer(options) {
       });
     });
 
-    socket.on("disconnect", () => {
+    socket.on("disconnect", (reason) => {
       const cur = presence.get(socket.id);
+      const connectedAt = socket.data?.connectedAt || 0;
+      appendJsonlLog(logDir, "connections.jsonl", {
+        event: "disconnect",
+        socketId: socket.id,
+        reason: String(reason || ""),
+        displayName: cur?.displayName || "",
+        clientUuid: cur?.clientUuid || "",
+        sessionSeconds: connectedAt ? Math.round((Date.now() - connectedAt) / 1000) : null
+      });
       if (!isShuttingDown && cur && String(cur.clientUuid || "").trim()) {
         upsertPresenceCacheRow({
           clientUuid: cur.clientUuid,
