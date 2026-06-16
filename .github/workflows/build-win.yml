@@ -28,7 +28,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '22'
           cache: 'npm'
 
       - name: Install dependencies
@@ -40,36 +40,33 @@ jobs:
           npm run icon:prepare
 
       - name: Build NSIS installer (.exe)
+        id: build-nsis
         if: ${{ github.event_name == 'push' || inputs.target == 'nsis' || inputs.target == 'both' }}
         run: npx electron-builder --win nsis --x64 --publish never
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: "false"
 
       - name: Build AppX / MSIX (Microsoft Store)
+        id: build-appx
         if: ${{ github.event_name == 'push' || inputs.target == 'appx' || inputs.target == 'both' }}
-        run: >
-          npx electron-builder --win appx --x64 --publish never
-          -c.directories.output=release-store-out
-          -c.appx.identityName=Hidroteknik.KobiChat
-          "-c.appx.publisher=CN=119D3611-306D-4F5E-B28C-3904B4C07374"
-          -c.appx.publisherDisplayName=Hidroteknik
+        run: npx electron-builder --win appx --x64 --publish never
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: "false"
 
       - name: Upload NSIS artifact
-        if: ${{ github.event_name == 'push' || inputs.target == 'nsis' || inputs.target == 'both' }}
+        if: ${{ always() && steps.build-nsis.conclusion == 'success' }}
         uses: actions/upload-artifact@v4
         with:
-          name: KobiChat-${{ github.ref_name }}-Setup-exe
+          name: KobiChat-Setup-exe
           path: release-build/*.exe
           if-no-files-found: warn
           retention-days: 30
 
       - name: Upload AppX artifact
-        if: ${{ github.event_name == 'push' || inputs.target == 'appx' || inputs.target == 'both' }}
+        if: ${{ always() && steps.build-appx.conclusion == 'success' }}
         uses: actions/upload-artifact@v4
         with:
-          name: KobiChat-${{ github.ref_name }}-Store-appx
-          path: release-store-out/*.appx
+          name: KobiChat-Store-appx
+          path: release-build/*.appx
           if-no-files-found: warn
           retention-days: 30
