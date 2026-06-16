@@ -1,12 +1,21 @@
-name: Build Windows Installer
+name: Build Windows
 
 on:
   push:
     branches: [main]
     paths-ignore:
       - '**.md'
-      - '.github/workflows/build-win.yml'
   workflow_dispatch:
+    inputs:
+      target:
+        description: 'Build target'
+        required: true
+        default: 'both'
+        type: choice
+        options:
+          - both
+          - nsis
+          - appx
 
 jobs:
   build:
@@ -30,17 +39,37 @@ jobs:
           npm run build
           npm run icon:prepare
 
-      - name: Build Windows NSIS installer
-        run: npx electron-builder --win nsis --x64
+      - name: Build NSIS installer (.exe)
+        if: ${{ github.event_name == 'push' || inputs.target == 'nsis' || inputs.target == 'both' }}
+        run: npx electron-builder --win nsis --x64 --publish never
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CSC_IDENTITY_AUTO_DISCOVERY: "false"
 
-      - name: Upload installer artifact
+      - name: Build AppX / MSIX (Microsoft Store)
+        if: ${{ github.event_name == 'push' || inputs.target == 'appx' || inputs.target == 'both' }}
+        run: >
+          npx electron-builder --win appx --x64 --publish never
+          -c.directories.output=release-store-out
+          -c.appx.identityName=Hidroteknik.KobiChat
+          "-c.appx.publisher=CN=119D3611-306D-4F5E-B28C-3904B4C07374"
+          -c.appx.publisherDisplayName=Hidroteknik
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: "false"
+
+      - name: Upload NSIS artifact
+        if: ${{ github.event_name == 'push' || inputs.target == 'nsis' || inputs.target == 'both' }}
         uses: actions/upload-artifact@v4
         with:
-          name: KobiChat-Setup-${{ github.ref_name }}
-          path: |
-            release-build/*.exe
-            release-build/*.yml
-          if-no-files-found: error
+          name: KobiChat-${{ github.ref_name }}-Setup-exe
+          path: release-build/*.exe
+          if-no-files-found: warn
+          retention-days: 30
+
+      - name: Upload AppX artifact
+        if: ${{ github.event_name == 'push' || inputs.target == 'appx' || inputs.target == 'both' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: KobiChat-${{ github.ref_name }}-Store-appx
+          path: release-store-out/*.appx
+          if-no-files-found: warn
           retention-days: 30
