@@ -2,6 +2,7 @@
  * signAndEditExecutable: false kullanıldığında electron-builder exe'ye ikon gömmez.
  * winCodeSign/rcedit zinciri bazı ortamlarda symlink hatası verdiği için
  * paketlemeden sonra yalnızca rcedit ile ikon eklenir.
+ * Wine gerektiren ortamlarda (Linux CI) sessizce atlanır.
  */
 const fs = require("fs");
 const path = require("path");
@@ -23,7 +24,11 @@ module.exports = async function afterPackWinIcon(context) {
     return;
   }
 
-  const { rcedit } = await import("rcedit");
-  await rcedit(exe, { icon: ico });
-  console.log("[afterPack] Windows exe ikonu ayarlandı:", path.basename(exe));
+  try {
+    const { rcedit } = await import("rcedit");
+    await rcedit(exe, { icon: ico });
+    console.log("[afterPack] Windows exe ikonu ayarlandı:", path.basename(exe));
+  } catch (e) {
+    console.warn("[afterPack] İkon ayarlanamadı (Wine eksik olabilir):", e?.message || e);
+  }
 };
