@@ -31,6 +31,11 @@ jobs:
           node-version: '22'
           cache: 'npm'
 
+      - name: Read version
+        run: |
+          $v = (Get-Content package.json | ConvertFrom-Json).version
+          echo "APP_VERSION=$v" >> $env:GITHUB_ENV
+
       - name: Install dependencies
         run: npm ci
 
@@ -57,7 +62,7 @@ jobs:
         if: ${{ always() && steps.build-nsis.conclusion == 'success' }}
         uses: actions/upload-artifact@v4
         with:
-          name: KobiChat-Setup-exe
+          name: KobiChat-${{ env.APP_VERSION }}-Setup-exe
           path: release-build/*.exe
           if-no-files-found: warn
           retention-days: 30
@@ -66,7 +71,7 @@ jobs:
         if: ${{ always() && steps.build-appx.conclusion == 'success' }}
         uses: actions/upload-artifact@v4
         with:
-          name: KobiChat-Store-appx
+          name: KobiChat-${{ env.APP_VERSION }}-Store-appx
           path: release-build/*.appx
           if-no-files-found: warn
           retention-days: 30
