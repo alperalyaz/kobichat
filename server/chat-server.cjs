@@ -541,6 +541,18 @@ async function createChatServer(options) {
     );
   }
 
+  function purgeGhostUuids(activeClientUuid, displayName) {
+    const cu = normalizeClientUuid(activeClientUuid);
+    const dn = String(displayName || "").trim().toLowerCase();
+    if (!cu || !dn) return;
+    try {
+      db.run(
+        `DELETE FROM presence_cache WHERE lower(display_name) = ? AND client_uuid != ?`,
+        [dn, cu]
+      );
+    } catch {}
+  }
+
   function touchPresenceLastSeen(clientUuid) {
     if (isShuttingDown) return;
     const cu = normalizeClientUuid(clientUuid);
@@ -998,6 +1010,7 @@ async function createChatServer(options) {
         profileImage,
         status
       });
+      purgeGhostUuids(clientUuid, name.trim() || "Anonim");
       setImmediate(() => {
         try {
           saveDb();

@@ -1,6 +1,25 @@
 const path = require("path");
 const fs = require("fs");
 const os = require("os");
+const { execSync } = require("child_process");
+
+const REG_KEY = "HKCU\\Software\\KobiChat";
+
+function readRegistryUuid() {
+  if (process.platform !== "win32") return null;
+  try {
+    const out = execSync(`reg query "${REG_KEY}" /v ClientUUID`, { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] });
+    const m = out.match(/ClientUUID\s+REG_SZ\s+([0-9a-f-]{36})/i);
+    return m ? m[1].trim().toLowerCase() : null;
+  } catch { return null; }
+}
+
+function writeRegistryUuid(uuid) {
+  if (process.platform !== "win32") return;
+  try {
+    execSync(`reg add "${REG_KEY}" /v ClientUUID /t REG_SZ /d "${uuid}" /f`, { stdio: "ignore" });
+  } catch {}
+}
 const CLUSTER_ID_DEFAULT = "kobichat-lan-v2";
 const CLUSTER_SECRET_DEFAULT = "kobichat-cluster-v2-shared";
 
@@ -191,15 +210,21 @@ async function openSettingsStore(userDataPath) {
       out.displayName = hn.slice(0, 21);
       set("displayName", out.displayName);
     }
-    if (!out.clientUuid || !String(out.clientUuid).trim()) {
+    const dbUuid = out.clientUuid ? String(out.clientUuid).trim().toLowerCase() : null;
+    const regUuid = readRegistryUuid();
+    if (dbUuid) {
+      out.clientUuid = dbUuid;
+      // Registry'ye de yaz (eksikse)
+      if (!regUuid) writeRegistryUuid(dbUuid);
+    } else if (regUuid) {
+      // AppData silindi ama Registry'de UUID var — aynı kimliği geri yükle
+      out.clientUuid = regUuid;
+      set("clientUuid", regUuid);
+    } else {
+      // İlk kurulum — yeni UUID üret, her iki yere de kaydet
       out.clientUuid = crypto.randomUUID().toLowerCase();
       set("clientUuid", out.clientUuid);
-    } else {
-      const lo = String(out.clientUuid).trim().toLowerCase();
-      if (lo !== String(out.clientUuid).trim()) {
-        out.clientUuid = lo;
-        set("clientUuid", lo);
-      }
+      writeRegistryUuid(out.clientUuid);
     }
     if (!out.nodeId || !String(out.nodeId).trim()) {
       out.nodeId = crypto.randomUUID();
