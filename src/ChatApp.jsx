@@ -24,8 +24,8 @@ const WEB_SETTINGS_KEY = "kobiChatWebSettings";
 /** Otomatik scroll'ın "kullanıcı dipte" sayılması için tolerans payı (px). */
 const NEAR_BOTTOM_THRESHOLD_PX = 80;
 
-/** Geçmiş modalında gösterilecek en fazla “önceki gün” mesajı (son N). */
-const PAST_HISTORY_DISPLAY_LIMIT = 100;
+/** Geçmiş modalında gösterilecek en fazla “önceki gün” mesajı (son N). Sunucu HISTORY_LIMIT (500) ile eşleştirildi. */
+const PAST_HISTORY_DISPLAY_LIMIT = 500;
 
 /**
  * Kullanıcının scroll-container'da gerçekten dibe yakın olup olmadığını ölçer.
