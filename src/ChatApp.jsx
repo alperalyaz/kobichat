@@ -2058,9 +2058,9 @@ export default function ChatApp() {
                 aria-label={t("chatHistoryButtonTitle")}
               >
                 {t("chatHistoryButtonOpen")}
-                {pastMessagesTotal > 0 ? (
+                {pastMessagesTotal > 0 && !pastHistoryTruncated ? (
                   <span className="btn-history-open__count" aria-hidden>
-                    {pastHistoryTruncated ? `${PAST_HISTORY_DISPLAY_LIMIT}+` : pastMessagesTotal}
+                    {pastMessagesTotal}
                   </span>
                 ) : null}
               </button>
