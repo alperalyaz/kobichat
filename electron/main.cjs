@@ -15,7 +15,8 @@ const {
   globalShortcut,
   shell,
   screen,
-  net
+  net,
+  clipboard
 } = require("electron");
 const { createChatServer, DEFAULT_PORT } = require("../server/chat-server.cjs");
 const { openSettingsStore } = require("./settings-store.cjs");
@@ -1508,6 +1509,96 @@ function createWindow() {
   });
 }
 
+/**
+ * Sağ tık menüsü ve klavye kısayolu etiketleri (uygulama diline göre).
+ * Kopyala/Kes/Yapıştır için rol kullanılır ancak etiketleri Türkçe görünür.
+ */
+const EDIT_MENU_LABELS = {
+  tr: { copy: "Kopyala", cut: "Kes", paste: "Yapıştır", selectAll: "Tümünü Seç", copyLink: "Bağlantıyı Kopyala" },
+  en: { copy: "Copy", cut: "Cut", paste: "Paste", selectAll: "Select All", copyLink: "Copy Link" },
+  de: { copy: "Kopieren", cut: "Ausschneiden", paste: "Einfügen", selectAll: "Alles auswählen", copyLink: "Link kopieren" },
+  fr: { copy: "Copier", cut: "Couper", paste: "Coller", selectAll: "Tout sélectionner", copyLink: "Copier le lien" },
+  es: { copy: "Copiar", cut: "Cortar", paste: "Pegar", selectAll: "Seleccionar todo", copyLink: "Copiar enlace" }
+};
+
+function editMenuLabels() {
+  let lang = "";
+  try {
+    lang = String(settingsStore?.getAll?.().language || "").slice(0, 2).toLowerCase();
+  } catch {
+    /* settingsStore henüz hazır değilse Türkçe varsayılan */
+  }
+  return EDIT_MENU_LABELS[lang] || EDIT_MENU_LABELS.tr;
+}
+
+/**
+ * Menu.setApplicationMenu(null) kullanıldığında Windows/Linux'ta standart
+ * düzenleme kısayolları (Ctrl+C/V/X/A/Z/Y) ve sağ tık kopyalama devre dışı
+ * kalır. Bu fonksiyon her webContents için bu davranışları geri kazandırır.
+ */
+function setupWebContentsEditing(contents) {
+  // 1) Klavye kısayolları
+  contents.on("before-input-event", (event, input) => {
+    if (input.type !== "keyDown") return;
+    const mod = process.platform === "darwin" ? input.meta : input.control;
+    if (!mod || input.alt) return;
+    switch (String(input.key || "").toLowerCase()) {
+      case "c":
+        contents.copy();
+        event.preventDefault();
+        break;
+      case "x":
+        contents.cut();
+        event.preventDefault();
+        break;
+      case "v":
+        contents.paste();
+        event.preventDefault();
+        break;
+      case "a":
+        contents.selectAll();
+        event.preventDefault();
+        break;
+      case "z":
+        if (input.shift) contents.redo();
+        else contents.undo();
+        event.preventDefault();
+        break;
+      case "y":
+        contents.redo();
+        event.preventDefault();
+        break;
+      default:
+        break;
+    }
+  });
+
+  // 2) Sağ tık menüsü (seçili metni / bağlantıyı kopyala)
+  contents.on("context-menu", (_event, params) => {
+    const L = editMenuLabels();
+    const items = [];
+    const hasSelection = Boolean(params.selectionText && params.selectionText.trim());
+    if (params.linkURL) {
+      items.push({ label: L.copyLink, click: () => clipboard.writeText(params.linkURL) });
+      items.push({ type: "separator" });
+    }
+    if (params.isEditable) {
+      items.push({ role: "cut", label: L.cut, enabled: params.editFlags.canCut });
+      items.push({ role: "copy", label: L.copy, enabled: params.editFlags.canCopy });
+      items.push({ role: "paste", label: L.paste, enabled: params.editFlags.canPaste });
+      items.push({ type: "separator" });
+      items.push({ role: "selectAll", label: L.selectAll });
+    } else if (hasSelection) {
+      items.push({ role: "copy", label: L.copy });
+      items.push({ type: "separator" });
+      items.push({ role: "selectAll", label: L.selectAll });
+    }
+    if (!items.length) return;
+    const win = BrowserWindow.fromWebContents(contents);
+    Menu.buildFromTemplate(items).popup(win ? { window: win } : undefined);
+  });
+}
+
 if (!app.requestSingleInstanceLock()) {
   app.quit();
 } else {
@@ -1517,6 +1608,11 @@ if (!app.requestSingleInstanceLock()) {
 
   app.whenReady().then(async () => {
     Menu.setApplicationMenu(null);
+    // Menü kaldırıldığından kopyalama kısayolları + sağ tık menüsünü
+    // her pencere (webContents) için elle geri kazandır.
+    app.on("web-contents-created", (_evt, contents) => {
+      setupWebContentsEditing(contents);
+    });
     if (process.platform === "win32") {
       app.setAppUserModelId("com.hidroteknik.kobichat");
     }
