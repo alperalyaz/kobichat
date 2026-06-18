@@ -1157,6 +1157,58 @@ function safeDownloadName(rawName, fallback = "download") {
   return cleaned || fallback;
 }
 
+/**
+ * Sık kullanılan MIME türleri için dosya uzantısı tablosu. İndirilen dosyanın
+ * adında geçerli bir uzantı yoksa Windows dosyayı hangi programla açacağını
+ * bilemez ("belge/pdf açılmıyor"). MIME bilgisinden doğru uzantıyı türetiriz.
+ */
+const MIME_EXTENSION_MAP = {
+  "application/pdf": ".pdf",
+  "application/msword": ".doc",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document": ".docx",
+  "application/vnd.ms-excel": ".xls",
+  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": ".xlsx",
+  "application/vnd.ms-powerpoint": ".ppt",
+  "application/vnd.openxmlformats-officedocument.presentationml.presentation": ".pptx",
+  "application/zip": ".zip",
+  "application/x-zip-compressed": ".zip",
+  "application/x-rar-compressed": ".rar",
+  "application/vnd.rar": ".rar",
+  "application/x-7z-compressed": ".7z",
+  "application/json": ".json",
+  "application/rtf": ".rtf",
+  "text/plain": ".txt",
+  "text/csv": ".csv",
+  "text/html": ".html",
+  "image/jpeg": ".jpg",
+  "image/png": ".png",
+  "image/gif": ".gif",
+  "image/webp": ".webp",
+  "image/bmp": ".bmp",
+  "image/svg+xml": ".svg",
+  "image/tiff": ".tif",
+  "audio/mpeg": ".mp3",
+  "audio/wav": ".wav",
+  "audio/ogg": ".ogg",
+  "video/mp4": ".mp4",
+  "video/webm": ".webm",
+  "video/quicktime": ".mov"
+};
+
+/**
+ * Dosya adında zaten makul bir uzantı varsa dokunmaz; yoksa (veya
+ * uzantı yer tutucu gibi anlamsızsa) MIME'dan türetilen uzantıyı ekler.
+ */
+function ensureFileExtension(name, mime) {
+  const safeName = safeDownloadName(name, "download");
+  const ext = path.extname(safeName).toLowerCase();
+  // 1-5 harfli (örn. .pdf, .docx) bir uzantı varsa olduğu gibi bırak.
+  if (ext && /^\.[a-z0-9]{1,5}$/i.test(ext)) return safeName;
+  const wanted = MIME_EXTENSION_MAP[String(mime || "").trim().toLowerCase()];
+  if (!wanted) return safeName;
+  return `${safeName}${wanted}`;
+}
+
 function uniqueFilePath(targetDir, filename) {
   const ext = path.extname(filename);
   const base = ext ? filename.slice(0, -ext.length) : filename;
@@ -1387,7 +1439,7 @@ async function downloadAndHandleAttachment(payload, onProgress) {
   }
   if (candidates.length === 0) return { ok: false, reason: "invalid_url" };
 
-  const filename = safeDownloadName(payload?.filename, "download");
+  const filename = ensureFileExtension(payload?.filename, payload?.mime);
   const rawSize = payload?.fileSize;
   const expectedSize = typeof rawSize === "number" && Number.isFinite(rawSize) ? rawSize : null;
   const targetDir = resolveWritableDownloadDir();
@@ -1805,6 +1857,15 @@ if (!app.requestSingleInstanceLock()) {
         const allowed = allowedDirs.some((dir) => isPathUnderDirectory(resolved, dir));
         if (!allowed) return { ok: false, reason: "forbidden" };
         const errMsg = await shell.openPath(resolved);
+        if (errMsg) {
+          // Açılamadıysa (ilişkili program yok vb.) dosyayı klasörde göster
+          // ki kullanıcı manuel açabilsin.
+          try {
+            shell.showItemInFolder(resolved);
+          } catch {
+            // ignored
+          }
+        }
         return { ok: !errMsg, err: errMsg || undefined };
       } catch (e) {
         console.error("open-downloaded:", e);

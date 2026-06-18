@@ -566,6 +566,14 @@ export default function ChatApp() {
   const [localDownloadByMessageId, setLocalDownloadByMessageId] = useState({});
   /** Electron: aktif indirme ilerlemesi (mesaj id → { received, total }) */
   const [downloadProgress, setDownloadProgress] = useState({});
+  /**
+   * İndirmesi tamamlanmış mesaj id'leri. `send` (ilerleme) ile `invoke`
+   * (dönüş) ayrı IPC kanalları olduğundan, indirme bittikten SONRA geç
+   * gelen bir %100 ilerleme olayı çubuğu tekrar gösterip "Aç" butonunu
+   * gizleyebiliyordu (çubuk %100'de takılı kalıyordu). Tamamlananları
+   * burada işaretleyip geç gelen olayları yok sayıyoruz.
+   */
+  const completedDownloadsRef = useRef(new Set());
   const [pendingImageUpload, setPendingImageUpload] = useState(null);
   /**
    * Yükleme akışı sayaçları:
@@ -770,6 +778,9 @@ export default function ChatApp() {
     const unsub = window.kobiChat.onDownloadProgress(({ messageId, received, total }) => {
       if (messageId == null) return;
       const key = String(messageId);
+      // İndirme tamamlandıysa geç gelen ilerleme olaylarını yok say
+      // (aksi halde çubuk %100'de takılır, "Aç" butonu çıkmaz).
+      if (completedDownloadsRef.current.has(key)) return;
       setDownloadProgress((prev) => ({ ...prev, [key]: { received, total } }));
     });
     return () => typeof unsub === "function" && unsub();
@@ -1614,7 +1625,13 @@ export default function ChatApp() {
         const reason = typeof res === "object" && res ? String(res.reason || "") : "";
         const savedPath = typeof res === "object" && res?.path ? String(res.path) : "";
         if (messageId != null) {
-          setDownloadProgress((prev) => { const n = { ...prev }; delete n[String(messageId)]; return n; });
+          const key = String(messageId);
+          // Önce tamamlandı işaretle, sonra temizle: geç gelen %100
+          // ilerleme olayları artık çubuğu yeniden gösteremez.
+          completedDownloadsRef.current.add(key);
+          setDownloadProgress((prev) => { const n = { ...prev }; delete n[key]; return n; });
+          // Bir süre sonra işareti kaldır ki tekrar indirmede ilerleme görünebilsin.
+          setTimeout(() => completedDownloadsRef.current.delete(key), 2000);
         }
         if (ok && savedPath && messageId != null) {
           setLocalDownloadByMessageId((prev) => ({ ...prev, [String(messageId)]: savedPath }));
