@@ -1070,6 +1070,15 @@ function RosterApp({ settingsOnly = false }) {
         const peerKey = String(d.peerClientUuid || d.peerId || "").trim().toLowerCase();
         if (peerKey) openChatPeersRef.current.delete(peerKey);
       }
+      if (d.type === "chat:viewed") {
+        /**
+         * Sohbet penceresi görüntülenip mesajlar okununca roster'daki
+         * "okunmamış" (turuncu has-unread) çerçevesini temizle. Aksi halde
+         * kullanıcı mesajı sohbet penceresinde okusa bile çerçeve kalıyordu.
+         */
+        const peerKey = String(d.peerClientUuid || d.peerId || "").trim().toLowerCase();
+        if (peerKey) setUnreadPeerIds((prev) => prev.filter((id) => id !== peerKey));
+      }
       if (d.type === "chat:dm-open") {
         dmQueueRef.current.push(d);
         processDmQueue();
@@ -1958,7 +1967,7 @@ function RosterApp({ settingsOnly = false }) {
                 {rosterPeerUsers.map((u) => {
                   const isOfflineRoster = u.online === false;
                   const st = isOfflineRoster ? "uygun" : mapServerPresenceToUi(u.status || "available");
-                  const peerUnreadKey = String(u.clientUuid || u.id || "").trim();
+                  const peerUnreadKey = String(u.clientUuid || u.id || "").trim().toLowerCase();
                   const hasUnread = peerUnreadKey ? unreadPeerIds.includes(peerUnreadKey) : false;
                   const peerChatTitle =
                     String(u.displayName || "").trim() || t("defaultUserName");

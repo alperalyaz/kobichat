@@ -963,6 +963,24 @@ export default function ChatApp() {
     return document.visibilityState === "visible" && document.hasFocus();
   }, []);
 
+  /**
+   * Roster'a (ana pencere) "bu peer'in penceresi görüntülendi → okundu" sinyali.
+   * Sohbet penceresinde okuma yapılınca roster'daki turuncu "okunmamış"
+   * çerçevesi (has-unread) buradan temizlenir; aksi halde kullanıcı mesajı
+   * sohbet penceresinde okusa bile roster'da hiç temizlenmiyor ve çerçeve
+   * sonsuza dek kalıyordu.
+   */
+  const notifyRosterViewed = useCallback(() => {
+    const cu = String(peerClientUuid || "").trim();
+    if (!cu) return;
+    const payload = { type: "chat:viewed", peerClientUuid: cu };
+    if (window.kobiChat?.sendToRoster) {
+      window.kobiChat.sendToRoster(payload);
+    } else if (bridgeRef.current?.postMessage) {
+      bridgeRef.current.postMessage(payload);
+    }
+  }, [peerClientUuid]);
+
   useEffect(() => {
     setActiveConvId(convIdMemo);
   }, [convIdMemo]);
@@ -1447,25 +1465,30 @@ export default function ChatApp() {
   }, [scheduleScrollToBottom]);
 
   useEffect(() => {
+    if (isChatWindowActivelyViewed()) {
+      notifyRosterViewed();
+    }
     if (!canSend || !mySocketId) return;
     if (isChatWindowActivelyViewed()) {
       requestAnimationFrame(markIncomingAsRead);
     }
-  }, [messages.length, canSend, mySocketId, markIncomingAsRead, isChatWindowActivelyViewed]);
+  }, [messages.length, canSend, mySocketId, markIncomingAsRead, isChatWindowActivelyViewed, notifyRosterViewed]);
 
   useEffect(() => {
     const onVisible = () => {
       if (isChatWindowActivelyViewed()) {
+        notifyRosterViewed();
         markIncomingAsRead();
       }
     };
+    onVisible();
     document.addEventListener("visibilitychange", onVisible);
     window.addEventListener("focus", onVisible);
     return () => {
       document.removeEventListener("visibilitychange", onVisible);
       window.removeEventListener("focus", onVisible);
     };
-  }, [markIncomingAsRead, isChatWindowActivelyViewed]);
+  }, [markIncomingAsRead, isChatWindowActivelyViewed, notifyRosterViewed]);
 
   const filePublicUrl = useMemo(() => {
     const fileBase = normalizeBase(activeSocketUrl || baseUrl);
