@@ -952,7 +952,37 @@ async function createChatServer(options) {
     users.push(...byClientUuid.values());
     users.sort((a, b) => a.displayName.localeCompare(b.displayName, "tr"));
     const offline = listCachedUsersNotOnline(onlineUuids);
-    return { users: [...users, ...offline] };
+    /**
+     * "Ajan Smith" temizliği: Bir kullanıcının PC'si UUID kalıcılığını
+     * kaybedip her açılışta yeni clientUuid üretirse, eski UUID'ler mesaj
+     * geçmişinde kaldığı için offline roster onları "hayalet" olarak yeniden
+     * üretir (aynı isimden 3-4 kopya). purgeGhostUuids yalnızca presence_cache'i
+     * temizlediğinden mesaj kaynaklı hayaletleri yakalayamıyor. Burada roster
+     * seviyesinde ADA göre birleştiriyoruz (veri silinmez, yalnızca gösterim):
+     *   - Aynı isim çevrimiçiyse tüm offline kopyalarını gizle (çevrimiçi otorite).
+     *   - Birden fazla offline aynı isim varsa yalnızca en güncelini tut.
+     *   - İsimsiz / "Anonim" satırlar birleştirilmez (farklı bilinmeyen peer'lar).
+     */
+    const normName = (s) => String(s || "").trim().toLowerCase();
+    const onlineNames = new Set(
+      users.map((u) => normName(u.displayName)).filter((n) => n && n !== "anonim")
+    );
+    const bestOfflineByName = new Map();
+    const offlineKept = [];
+    for (const u of offline) {
+      const nm = normName(u.displayName);
+      if (!nm || nm === "anonim") {
+        offlineKept.push(u);
+        continue;
+      }
+      if (onlineNames.has(nm)) continue;
+      const prev = bestOfflineByName.get(nm);
+      if (!prev || String(u.last_seen_at || "") > String(prev.last_seen_at || "")) {
+        bestOfflineByName.set(nm, u);
+      }
+    }
+    offlineKept.push(...bestOfflineByName.values());
+    return { users: [...users, ...offlineKept] };
   }
 
   function broadcastRoster() {
