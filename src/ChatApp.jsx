@@ -208,6 +208,34 @@ function groupMessagesByDay(messages, t, locale) {
   return out;
 }
 
+/**
+ * Sunucunun atadığı numerik id (monotonik artar) → sıralamanın TEK doğru
+ * kaynağı. Optimistik mesajlar "local-…" id taşır ve henüz sunucu id'si yok.
+ */
+function serverIdOrNull(m) {
+  const s = String(m?.id ?? "");
+  if (!s || s.startsWith("local-")) return null;
+  const n = Number(s);
+  return Number.isFinite(n) ? n : null;
+}
+
+/**
+ * Sıralama: created_at (zaman damgası) ile sıralamak istemci/sunucu saat
+ * farkında (clock skew) mesajları birbirinin üstüne atlatıyordu — özellikle
+ * dosya mesajlarının optimistik karşılığı olmadığından yalnızca sunucu
+ * saatiyle geliyorlar. Bunun yerine sunucu id'sine göre sırala; iki mesaj da
+ * onaylıysa id kararı verir (saatten bağımsız). Onaylı mesaj her zaman
+ * optimistik (henüz gönderim onayı gelmemiş, en yeni) mesajın üstünde kalır.
+ */
+function messageOrderComparator(a, b) {
+  const ai = serverIdOrNull(a);
+  const bi = serverIdOrNull(b);
+  if (ai != null && bi != null) return ai - bi;
+  if (ai != null) return -1;
+  if (bi != null) return 1;
+  return new Date(a.created_at) - new Date(b.created_at);
+}
+
 /** Sunucudan gelen geçmiş ile ekrandaki (message:new ile eklenen) mesajları birleştirir; geç gelen history yanıtı yeni mesajları silmez. */
 function mergeMessageListsById(incoming, previous) {
   const map = new Map();
@@ -217,9 +245,7 @@ function mergeMessageListsById(incoming, previous) {
   for (const m of previous) {
     if (m?.id != null && !map.has(String(m.id))) map.set(String(m.id), m);
   }
-  return Array.from(map.values()).sort(
-    (a, b) => new Date(a.created_at) - new Date(b.created_at)
-  );
+  return Array.from(map.values()).sort(messageOrderComparator);
 }
 
 function clampDisplayName(s) {
