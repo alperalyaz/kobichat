@@ -1553,10 +1553,46 @@ function RosterApp({ settingsOnly = false }) {
         ? { ...u, status: mapUiPresenceToServer(presenceStatus), profileImage: profileImage || u.profileImage || "" }
         : u;
     });
+    /**
+     * "Ajan Smith" temizliği (istemci-taraf savunma katmanı): Sunucu eski
+     * sürümdeyse hayaletleri hâlâ gönderebilir. Burada da ada göre birleştiriyoruz:
+     * aynı isim çevrimiçiyse offline kopyaları gizle; birden fazla offline aynı
+     * isim varsa en günceli tut; isimsiz/Anonim satırlar birleştirilmez.
+     */
+    const normNameRoster = (s) => String(s || "").trim().toLowerCase();
+    const onlineNamesRoster = new Set(
+      withSelfStatus
+        .filter((u) => u.online !== false)
+        .map((u) => normNameRoster(u.displayName))
+        .filter((n) => n && n !== "anonim")
+    );
+    const bestOfflineByName = new Map();
+    const dedupedRoster = [];
+    for (const u of withSelfStatus) {
+      if (u.online !== false) {
+        dedupedRoster.push(u);
+        continue;
+      }
+      const nm = normNameRoster(u.displayName);
+      if (!nm || nm === "anonim") {
+        dedupedRoster.push(u);
+        continue;
+      }
+      if (onlineNamesRoster.has(nm)) continue;
+      const prev = bestOfflineByName.get(nm);
+      if (!prev) {
+        bestOfflineByName.set(nm, u);
+        continue;
+      }
+      const uk = String(u.last_seen_at || u.lastSeenAt || "");
+      const pk = String(prev.last_seen_at || prev.lastSeenAt || "");
+      if (uk > pk) bestOfflineByName.set(nm, u);
+    }
+    dedupedRoster.push(...bestOfflineByName.values());
     const collator = new Intl.Collator(locale, { sensitivity: "base" });
     const isSelfUser = (u) => Boolean(mySocketId && u.id === mySocketId);
     const isOfflineRosterUser = (u) => u.online === false;
-    withSelfStatus.sort((a, b) => {
+    dedupedRoster.sort((a, b) => {
       const aSelf = isSelfUser(a);
       const bSelf = isSelfUser(b);
       if (aSelf && !bSelf) return 1;
@@ -1572,7 +1608,7 @@ function RosterApp({ settingsOnly = false }) {
       if (!aAway && bAway) return -1;
       return collator.compare(String(a.displayName), String(b.displayName));
     });
-    return withSelfStatus;
+    return dedupedRoster;
   }, [
     onlineUsers,
     rosterCacheUsers,
