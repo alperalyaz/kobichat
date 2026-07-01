@@ -879,6 +879,11 @@ function RosterApp({ settingsOnly = false }) {
         alert(t("uploadFailed"));
         return false;
       }
+      // "Dışarıda" (away) kullanıcıya dosya gönderilemez; yalnızca mesaj gider.
+      if (peer.online !== false && String(peer.status || "").toLowerCase() === "away") {
+        alert(t("fileBlockedPeerAway", { name: String(peer.displayName || "").trim() || t("defaultUserName") }));
+        return false;
+      }
       const uploadBase = activeSocketBaseFromRef(socketRef, baseUrl);
       if (!uploadBase) {
         alert(t("uploadFailed"));
@@ -1560,6 +1565,11 @@ function RosterApp({ settingsOnly = false }) {
       const bOffline = isOfflineRosterUser(b);
       if (aOffline && !bOffline) return 1;
       if (!aOffline && bOffline) return -1;
+      // Çevrimiçi grubun içinde "dışarıda" (away) olanlar aktiflerin altına iner.
+      const aAway = !aOffline && String(a.status || "").toLowerCase() === "away";
+      const bAway = !bOffline && String(b.status || "").toLowerCase() === "away";
+      if (aAway && !bAway) return 1;
+      if (!aAway && bAway) return -1;
       return collator.compare(String(a.displayName), String(b.displayName));
     });
     return withSelfStatus;

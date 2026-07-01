@@ -105,6 +105,7 @@ export const MESSAGES = {
     firewallHint:
       "Yerel ağda iletişim için Windows güvenlik duvarında bu porta izin vermeniz gerekebilir. Sohbet geçmişi sunucuda saklanır; her iki taraf da aynı kaydı görür.",
     uploadFailed: "Dosya yüklenemedi.",
+    fileBlockedPeerAway: "{name} dışarıda. Dışarıdaki kişiye dosya gönderilemez; yalnızca mesaj iletilebilir.",
     uploadFailedMany: "{count} dosya yüklenemedi.",
     filesUploading: "{count} dosya yükleniyor…",
     filePrefix: "Dosya:",
@@ -311,6 +312,7 @@ export const MESSAGES = {
     firewallHint:
       "You may need to allow this port in Windows Firewall for LAN use. Chat history is stored on the server; both sides see the same log.",
     uploadFailed: "Upload failed.",
+    fileBlockedPeerAway: "{name} is away. You can't send files to someone who is away; only messages.",
     uploadFailedMany: "{count} files failed to upload.",
     filesUploading: "Uploading {count} file(s)…",
     filePrefix: "File:",
@@ -517,6 +519,7 @@ export const MESSAGES = {
     firewallHint:
       "Für LAN ggf. diesen Port in der Windows-Firewall erlauben. Chat-Verlauf liegt auf dem Server; beide Seiten sehen denselben Verlauf.",
     uploadFailed: "Upload fehlgeschlagen.",
+    fileBlockedPeerAway: "{name} ist abwesend. An abwesende Personen können keine Dateien gesendet werden; nur Nachrichten.",
     uploadFailedMany: "{count} Dateien konnten nicht hochgeladen werden.",
     filesUploading: "{count} Datei(en) werden hochgeladen…",
     filePrefix: "Datei:",
@@ -722,6 +725,7 @@ export const MESSAGES = {
     firewallHint:
       "Vous devrez peut-être autoriser ce port dans le pare-feu Windows pour le LAN. L’historique est sur le serveur ; les deux côtés voient le même journal.",
     uploadFailed: "Échec du téléversement.",
+    fileBlockedPeerAway: "{name} est absent. Impossible d'envoyer des fichiers à une personne absente ; uniquement des messages.",
     uploadFailedMany: "Échec du téléversement de {count} fichiers.",
     filesUploading: "Téléversement de {count} fichier(s)…",
     filePrefix: "Fichier :",
@@ -927,6 +931,7 @@ export const MESSAGES = {
     firewallHint:
       "Puede que debas permitir este puerto en el firewall de Windows para la LAN. El historial está en el servidor; ambos ven el mismo registro.",
     uploadFailed: "Error al subir el archivo.",
+    fileBlockedPeerAway: "{name} está ausente. No puedes enviar archivos a alguien ausente; solo mensajes.",
     uploadFailedMany: "No se pudieron subir {count} archivos.",
     filesUploading: "Subiendo {count} archivo(s)…",
     filePrefix: "Archivo:",

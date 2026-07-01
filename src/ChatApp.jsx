@@ -825,6 +825,13 @@ export default function ChatApp() {
     return peerPresenceAllowsPoke(peerStatus);
   }, [peerOnline, peerSocketId, peerStatus]);
 
+  /** Karşı taraf "dışarıda" (away) iken dosya gönderimi engellenir; yalnızca mesaj gider. */
+  const peerIsAway = useMemo(() => {
+    if (!peerOnline) return false;
+    const s = String(peerStatus || "").toLowerCase();
+    return s === "away" || s === "disarida";
+  }, [peerOnline, peerStatus]);
+
   const peerStatusText = useMemo(() => {
     const s = String(peerStatus || "").toLowerCase();
     if (!peerOnline) return `${t("presenceUserOffline")} · ${t("messageQueued")}`;
@@ -1936,6 +1943,11 @@ export default function ChatApp() {
   const uploadFiles = async (files) => {
     const list = Array.from(files || []).filter(Boolean);
     if (!list.length || !canSend || !mySocketId) return;
+    if (peerIsAway) {
+      playSound("error");
+      alert(t("fileBlockedPeerAway", { name: peerName || t("defaultUserName") }));
+      return;
+    }
     const uploadBase = normalizeBase(activeSocketUrl || baseUrl);
     if (!uploadBase) {
       playSound("error");
