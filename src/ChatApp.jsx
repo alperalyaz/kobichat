@@ -1076,22 +1076,34 @@ export default function ChatApp() {
           messagesRef.current = next;
           return next;
         }
-        let base = prev;
         const sid2 = mySocketIdRef.current;
         const fromSelf =
           typeof msg?.from_socket_id === "string" &&
           sid2 &&
           String(msg.from_socket_id) === String(sid2);
-        if (fromSelf && msg.kind === "text") {
-          base = prev.filter((m) => {
-            if (!String(m.id).startsWith("local-")) return true;
-            return !(
-              m.kind === "text" &&
-              m.text_content === msg.text_content &&
-              m.conv_id === msg.conv_id
-            );
-          });
-        }
+        /**
+         * Optimistik ("local-") mesajı sunucu sürümü gelince kaldır. Öncelik
+         * client_msg_id eşleşmesi: reconnect'te from_socket_id değişse veya
+         * echo geç gelse bile optimistik mesaj güvenle uzlaştırılır. Aksi
+         * halde optimistik mesaj (yanlış saatli PC'nin client saatiyle) en
+         * altta takılı kalıyor ve mesajlar saat olarak ters görünüyordu.
+         * client_msg_id yoksa eski metin eşleşmesine düşülür.
+         */
+        const incomingCmid = msg?.client_msg_id ? String(msg.client_msg_id) : "";
+        const base = prev.filter((m) => {
+          if (!String(m.id).startsWith("local-")) return true;
+          if (incomingCmid && String(m.client_msg_id || "") === incomingCmid) return false;
+          if (
+            fromSelf &&
+            msg.kind === "text" &&
+            m.kind === "text" &&
+            m.text_content === msg.text_content &&
+            m.conv_id === msg.conv_id
+          ) {
+            return false;
+          }
+          return true;
+        });
         const next = mergeMessageListsById([msg], base);
         messagesRef.current = next;
         return next;
@@ -1195,7 +1207,20 @@ export default function ChatApp() {
         const wasFirstLoad = (messagesRef.current?.length || 0) === 0;
         const wasNearBottom = isUserNearBottom(scrollContainerRef.current);
         setMessages((prev) => {
-          const combined = mergeMessageListsById(list, prev);
+          /**
+           * Geçmiş yüklenince, sunucunun artık sahip olduğu (client_msg_id
+           * eşleşen) optimistik "local-" mesajları düş; aksi halde echo
+           * tamamen kaçmışsa optimistik mesaj yanlış saatle ve gerçek sürümle
+           * birlikte (mükerrer) kalabiliyordu.
+           */
+          const serverCmids = new Set(
+            list.map((m) => (m?.client_msg_id ? String(m.client_msg_id) : "")).filter(Boolean)
+          );
+          const cleanedPrev = prev.filter((m) => {
+            if (!String(m.id).startsWith("local-")) return true;
+            return !(m.client_msg_id && serverCmids.has(String(m.client_msg_id)));
+          });
+          const combined = mergeMessageListsById(list, cleanedPrev);
           messagesRef.current = combined;
           return combined;
         });
