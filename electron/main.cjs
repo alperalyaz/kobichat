@@ -1671,18 +1671,30 @@ if (!app.requestSingleInstanceLock()) {
     settingsStore = await openSettingsStore(app.getPath("userData"));
     normalizeSettingsForVersion(app.getVersion());
     const st = settingsStore.getAll();
-    if (
-      !st.loginItemSetupDone &&
-      app.isPackaged &&
-      (process.platform === "win32" || process.platform === "darwin")
-    ) {
+    if (app.isPackaged && (process.platform === "win32" || process.platform === "darwin")) {
+      /**
+       * Otomatik başlatmayı HER açılışta doğrula (eskiden yalnızca ilk açılışta
+       * bir kez kuruluyordu). Windows güncelleme sonrası execPath değişince veya
+       * Run anahtarı temizlenince eski davranışta bir daha asla geri gelmiyordu;
+       * bazı bilgisayarlarda "başlangıçta açılmıyor" sorununun nedeni buydu.
+       * Kapalıysa yeniden aç — kendi kendini onarır. Kullanıcı Görev
+       * Yöneticisi'nden bilinçli kapattıysa Windows StartupApproved kaydı
+       * geçerli kalır; bu çağrı onu ezmez.
+       *
+       * NOT: Microsoft Store (MSIX) sürümünde otomatik başlatma Run anahtarıyla
+       * çalışmaz; manifest'te startupTask gerekir. Store istemcilerinde bu kod
+       * etkisizdir — orası ayrıca ele alınmalı.
+       */
       try {
-        app.setLoginItemSettings({
-          openAtLogin: true,
-          path: process.execPath,
-          enabled: true
-        });
-        settingsStore.save({ loginItemSetupDone: true });
+        const li = app.getLoginItemSettings();
+        if (!li.openAtLogin) {
+          app.setLoginItemSettings({
+            openAtLogin: true,
+            path: process.execPath,
+            enabled: true
+          });
+        }
+        if (!st.loginItemSetupDone) settingsStore.save({ loginItemSetupDone: true });
       } catch (e) {
         console.error("Oturum açılışında başlatma ayarlanamadı:", e);
       }
