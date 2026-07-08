@@ -1359,6 +1359,15 @@ html[data-theme="dark"] .msg-avatar--fallback {
   color: #38bdf8;
 }
 
+.msg-status--pending {
+  color: #cbd5e1;
+  font-weight: 400;
+}
+
+.msg-status--failed {
+  color: #dc2626;
+}
+
 .msg-body {
   font-size: 0.95rem;
   line-height: 1.45;

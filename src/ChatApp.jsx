@@ -257,6 +257,8 @@ function clampDisplayName(s) {
 const MSG_CACHE_PREFIX = "kobiChatMsgCache_v1_";
 const MSG_CACHE_MAX = 200;
 const MSG_CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+/** Optimistik mesaj bu süre içinde sunucuca onaylanmazsa "gönderilemedi" sayılır. */
+const SEND_CONFIRM_TIMEOUT_MS = 12000;
 
 function loadMessageCache(peerCu) {
   if (!peerCu) return [];
@@ -278,7 +280,15 @@ function loadMessageCache(peerCu) {
 function saveMessageCache(peerCu, messages) {
   if (!peerCu || !messages.length) return;
   try {
-    const toSave = messages.slice(-MSG_CACHE_MAX);
+    /**
+     * Onaylanmamış optimistik ("local-") mesajları önbelleğe YAZMA. Sunucuya
+     * ulaşmamış (gönderilemeyen, tek-tık) bir mesaj önbelleğe girerse her
+     * pencere açılışında hayalet olarak geri yüklenir ve sunucu karşılığı
+     * olmadığı için hiç temizlenmeden en altta çakılı kalırdı.
+     */
+    const confirmed = messages.filter((m) => !String(m?.id ?? "").startsWith("local-"));
+    if (!confirmed.length) return;
+    const toSave = confirmed.slice(-MSG_CACHE_MAX);
     localStorage.setItem(
       MSG_CACHE_PREFIX + peerCu,
       JSON.stringify({ messages: toSave, savedAt: new Date().toISOString() })
@@ -418,31 +428,37 @@ function ChatMessageBubble({
         <div className="msg-meta">
           <span className="msg-sender">{m.sender}</span>
           <span className="msg-meta-right">
-            {isMine && statusState ? (
-              <span
-                className={`msg-status msg-status--${statusState}`}
-                title={
-                  statusState === "read"
-                    ? t("messageRead")
-                    : statusState === "delivered"
-                      ? t("messageDelivered")
-                      : statusState === "queued"
-                        ? t("messageQueued")
-                        : t("send")
-                }
-                aria-label={
-                  statusState === "read"
-                    ? t("messageRead")
-                    : statusState === "delivered"
-                      ? t("messageDelivered")
-                      : statusState === "queued"
-                        ? t("messageQueued")
-                        : t("send")
-                }
-              >
-                {statusState === "delivered" || statusState === "read" ? "✓✓" : "✓"}
-              </span>
-            ) : null}
+            {isMine && statusState ? (() => {
+              const statusTitle =
+                statusState === "read"
+                  ? t("messageRead")
+                  : statusState === "delivered"
+                    ? t("messageDelivered")
+                    : statusState === "queued"
+                      ? t("messageQueued")
+                      : statusState === "pending"
+                        ? t("messageSending")
+                        : statusState === "failed"
+                          ? t("messageFailed")
+                          : t("send");
+              const glyph =
+                statusState === "delivered" || statusState === "read"
+                  ? "✓✓"
+                  : statusState === "pending"
+                    ? "🕓"
+                    : statusState === "failed"
+                      ? "⚠"
+                      : "✓";
+              return (
+                <span
+                  className={`msg-status msg-status--${statusState}`}
+                  title={statusTitle}
+                  aria-label={statusTitle}
+                >
+                  {glyph}
+                </span>
+              );
+            })() : null}
             {timeLabel ? (
               <time className="msg-time" dateTime={m.created_at} title={timeLabel}>
                 {timeLabel}
@@ -939,6 +955,15 @@ export default function ChatApp() {
   const statusStateForMessage = useCallback(
     (m) => {
       if (!m?.id || !isMineMessage(m)) return "";
+      /**
+       * Optimistik ("local-") mesaj henüz sunucu tarafından onaylanmadı;
+       * tek ✓ ("gönderildi") göstermek yanıltıcıydı (mesaj aslında gitmemiş
+       * olabilir). Onaylanana kadar "gönderiliyor", zaman aşımına uğrarsa
+       * "gönderilemedi" göster.
+       */
+      if (String(m.id).startsWith("local-")) {
+        return m.send_failed ? "failed" : "pending";
+      }
       const ds = String(m.delivery_state || "").toLowerCase();
       const st = messageStatusMap[String(m.id)];
       /**
@@ -1809,6 +1834,27 @@ export default function ChatApp() {
         });
         /** Kendi mesajım — pozisyondan bağımsız olarak dibe getir ki yazdığım hemen görünsün. */
         scheduleScrollToBottom({ force: true });
+        /**
+         * Gönderim onay zaman aşımı: bu süre içinde optimistik mesaj sunucu
+         * sürümüyle değiştirilmezse "gönderilemedi" işaretle. Sonradan
+         * reconnect'le gerçekten giderse client_msg_id uzlaşması optimistik
+         * satırı kaldıracağından işaret kendiliğinden kaybolur.
+         */
+        window.setTimeout(() => {
+          setMessages((prev) => {
+            let changed = false;
+            const next = prev.map((m) => {
+              if (String(m.id) === tempId && !m.send_failed) {
+                changed = true;
+                return { ...m, send_failed: true };
+              }
+              return m;
+            });
+            if (!changed) return prev;
+            messagesRef.current = next;
+            return next;
+          });
+        }, SEND_CONFIRM_TIMEOUT_MS);
       }
       bridgeSend({
         type: "chat:send-text",
