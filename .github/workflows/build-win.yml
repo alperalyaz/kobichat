@@ -17,6 +17,10 @@ on:
           - nsis
           - appx
 
+# Release oluşturup dosya yükleyebilmek için gerekli.
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: windows-latest
@@ -58,20 +62,18 @@ jobs:
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: "false"
 
-      - name: Upload NSIS artifact
-        if: ${{ always() && steps.build-nsis.conclusion == 'success' }}
-        uses: actions/upload-artifact@v4
+      # GitHub Releases'e yükle. Artifact kotasına TAKILMAZ (artifact'ler
+      # her build'de birikip 500MB ücretsiz sınırı dolduruyordu). Aynı sürüm
+      # tag'i varsa günceller; latest.yml + blockmap electron-updater içindir.
+      - name: Publish to GitHub Release
+        if: ${{ always() && (steps.build-nsis.conclusion == 'success' || steps.build-appx.conclusion == 'success') }}
+        uses: softprops/action-gh-release@v2
         with:
-          name: KobiChat-${{ env.APP_VERSION }}-Setup-exe
-          path: release-build/*.exe
-          if-no-files-found: warn
-          retention-days: 30
-
-      - name: Upload AppX artifact
-        if: ${{ always() && steps.build-appx.conclusion == 'success' }}
-        uses: actions/upload-artifact@v4
-        with:
-          name: KobiChat-${{ env.APP_VERSION }}-Store-appx
-          path: release-build/*.appx
-          if-no-files-found: warn
-          retention-days: 30
+          tag_name: v${{ env.APP_VERSION }}
+          name: KobiChat ${{ env.APP_VERSION }}
+          fail_on_unmatched_files: false
+          files: |
+            release-build/*.exe
+            release-build/*.exe.blockmap
+            release-build/latest*.yml
+            release-build/*.appx
