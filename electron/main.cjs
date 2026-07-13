@@ -16,7 +16,8 @@ const {
   shell,
   screen,
   net,
-  clipboard
+  clipboard,
+  powerMonitor
 } = require("electron");
 const { createChatServer, DEFAULT_PORT } = require("../server/chat-server.cjs");
 const { openSettingsStore } = require("./settings-store.cjs");
@@ -824,6 +825,40 @@ function refreshTrayMenu() {
     tray.setContextMenu(buildTrayMenu());
     applyTrayPresenceTooltip();
   }
+}
+
+/**
+ * Otomatik "Dışarıda" (auto-away) — Softros benzeri boşta kalma algılama.
+ * powerMonitor.getSystemIdleTime() sistem GENELİNDE son klavye/fare
+ * girdisinden bu yana geçen saniyeyi verir (uygulama arka planda olsa bile).
+ * Eşik aşılınca roster penceresine idle=true, ilk harekette idle=false
+ * gönderilir; durum kararını (yalnızca "uygun" iken dışarıya düşme,
+ * kullanıcının elle seçtiği durumu ezmeme) renderer verir.
+ * KOBICHAT_AUTO_AWAY_MINUTES=0 ile kapatılabilir (varsayılan 5 dk).
+ */
+const AUTO_AWAY_IDLE_SECONDS = (() => {
+  const env = process.env.KOBICHAT_AUTO_AWAY_MINUTES;
+  if (env === "0") return 0;
+  return Math.max(60, Math.round((Number(env) || 5) * 60));
+})();
+let lastReportedIdle = false;
+
+function startSystemIdleWatcher() {
+  if (!AUTO_AWAY_IDLE_SECONDS) return;
+  setInterval(() => {
+    let idleSeconds = 0;
+    try {
+      idleSeconds = powerMonitor.getSystemIdleTime();
+    } catch {
+      return;
+    }
+    const idle = idleSeconds >= AUTO_AWAY_IDLE_SECONDS;
+    if (idle === lastReportedIdle) return;
+    lastReportedIdle = idle;
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send("kobichat:system-idle", { idle, idleSeconds });
+    }
+  }, 5000);
 }
 
 function stopChatServer() {
@@ -1702,6 +1737,7 @@ if (!app.requestSingleInstanceLock()) {
     await applyServerMode();
     createWindow();
     createTray();
+    startSystemIdleWatcher();
 
     try {
       globalShortcut.register("CommandOrControl+Shift+K", () => {

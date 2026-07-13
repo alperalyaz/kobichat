@@ -418,6 +418,8 @@ function RosterApp({ settingsOnly = false }) {
   const [lanReady, setLanReady] = useState(() => typeof window === "undefined" || !window.kobiChat);
   const [discoverInfo, setDiscoverInfo] = useState({ key: "empty" });
   const [presenceStatus, setPresenceStatus] = useState("uygun");
+  /** Sistem boşta (klavye/fare hareketsiz) — main process powerMonitor'dan gelir. */
+  const [systemIdle, setSystemIdle] = useState(false);
   const [settingsPresenceStatus, setSettingsPresenceStatus] = useState("uygun");
   const [settingsLang, setSettingsLang] = useState(() => normalizeLang(lang));
   const [settingsTheme, setSettingsTheme] = useState(() => getStoredTheme());
@@ -524,6 +526,16 @@ function RosterApp({ settingsOnly = false }) {
   displayNameRef.current = displayName;
   profileImageRef.current = profileImage;
   presenceStatusRef.current = presenceStatus;
+  /**
+   * Otomatik "Dışarıda" (Softros benzeri): sistem boştayken ve kullanıcı
+   * "uygun" iken efektif durum "disarida" olur. Kullanıcının ELLE seçtiği
+   * meşgul/dışarıda asla ezilmez; ayarlara da yazılmaz (kalıcı tercih
+   * "uygun" kalır) — ilk harekette türetilmiş değer kendiliğinden geri döner.
+   */
+  const effectivePresenceStatus =
+    systemIdle && presenceStatus === "uygun" ? "disarida" : presenceStatus;
+  const effectivePresenceStatusRef = useRef("uygun");
+  effectivePresenceStatusRef.current = effectivePresenceStatus;
   notificationSoundEnabledRef.current = notificationSoundEnabled;
   tRef.current = t;
 
@@ -983,6 +995,17 @@ function RosterApp({ settingsOnly = false }) {
     }
   }, [unreadPeerIds.length, clearAttentionUi]);
 
+  /** Otomatik "Dışarıda": main process'ten sistem boşta/aktif geçişlerini dinle. */
+  useEffect(() => {
+    if (settingsOnly || !window.kobiChat?.onSystemIdle) return undefined;
+    const unsub = window.kobiChat.onSystemIdle((p) => {
+      setSystemIdle(Boolean(p?.idle));
+    });
+    return () => {
+      if (typeof unsub === "function") unsub();
+    };
+  }, [settingsOnly]);
+
   useEffect(() => {
     /**
      * Ayarlar ayrı BrowserWindow'da `settingsOnly` ile açılıyor; burada da socket açılırsa
@@ -1208,7 +1231,7 @@ function RosterApp({ settingsOnly = false }) {
         s.emit("presence:join", {
           displayName: clampDisplayName(displayNameRef.current) || tRef.current("defaultUserName"),
           clientUuid: cu,
-          status: mapUiPresenceToServer(presenceStatusRef.current),
+          status: mapUiPresenceToServer(effectivePresenceStatusRef.current),
           profileImage: profileImageRef.current || ""
         });
       }
@@ -1541,7 +1564,7 @@ function RosterApp({ settingsOnly = false }) {
           id: mySocketId,
           displayName: nm,
           clientUuid,
-          status: mapUiPresenceToServer(presenceStatus),
+          status: mapUiPresenceToServer(effectivePresenceStatus),
           profileImage,
           online: true
         });
@@ -1550,7 +1573,7 @@ function RosterApp({ settingsOnly = false }) {
     const withSelfStatus = list.map((u) => {
       const isSelfUser = Boolean(mySocketId && u.id === mySocketId);
       return isSelfUser
-        ? { ...u, status: mapUiPresenceToServer(presenceStatus), profileImage: profileImage || u.profileImage || "" }
+        ? { ...u, status: mapUiPresenceToServer(effectivePresenceStatus), profileImage: profileImage || u.profileImage || "" }
         : u;
     });
     /**
@@ -1616,7 +1639,7 @@ function RosterApp({ settingsOnly = false }) {
     mySocketId,
     clientUuid,
     displayName,
-    presenceStatus,
+    effectivePresenceStatus,
     profileImage,
     locale,
     t
@@ -1638,16 +1661,16 @@ function RosterApp({ settingsOnly = false }) {
     s.emit("presence:join", {
       displayName: clampDisplayName(displayName) || t("defaultUserName"),
       clientUuid,
-      status: mapUiPresenceToServer(presenceStatus),
+      status: mapUiPresenceToServer(effectivePresenceStatus),
       profileImage
     });
-  }, [connected, displayName, clientUuid, presenceStatus, profileImage, t]);
+  }, [connected, displayName, clientUuid, effectivePresenceStatus, profileImage, t]);
 
   useEffect(() => {
     const s = socketRef.current;
     if (!s || !connected) return;
-    s.emit("presence:status", { status: mapUiPresenceToServer(presenceStatus) });
-  }, [connected, presenceStatus]);
+    s.emit("presence:status", { status: mapUiPresenceToServer(effectivePresenceStatus) });
+  }, [connected, effectivePresenceStatus]);
 
   const openSettings = async () => {
     /** Mevcut state'lerden geçerli ses ayarlarını al; ham source yoksa fallback. */

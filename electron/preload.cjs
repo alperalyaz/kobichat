@@ -37,6 +37,12 @@ contextBridge.exposeInMainWorld("kobiChat", {
     ipcRenderer.on("kobichat:presence-tray", handler);
     return () => ipcRenderer.removeListener("kobichat:presence-tray", handler);
   },
+  /** Main process → roster: sistem boşta/aktif geçişleri (otomatik "Dışarıda") */
+  onSystemIdle: (fn) => {
+    const handler = (_e, payload) => fn(payload);
+    ipcRenderer.on("kobichat:system-idle", handler);
+    return () => ipcRenderer.removeListener("kobichat:system-idle", handler);
+  },
   /** Liste penceresi → tüm pencerelere (sohbet) socket olayları */
   relayBroadcast: (payload) => ipcRenderer.send("kobichat:relay-broadcast", payload),
   onRelayBroadcast: (fn) => {
