@@ -1552,6 +1552,14 @@ html[data-theme="dark"] .msg-avatar--fallback {
   cursor: pointer;
 }
 
+.msg-file-caption {
+  margin-top: 8px;
+  font-size: 0.95rem;
+  line-height: 1.4;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
 .hint-banner {
   text-align: center;
   padding: 24px;
@@ -2555,6 +2563,26 @@ body[data-settings-only="1"] .modal-header input {
   max-width: 100%;
   max-height: min(52vh, 420px);
   object-fit: contain;
+}
+
+.image-upload-caption {
+  width: 100%;
+  margin-top: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg);
+  color: inherit;
+  font: inherit;
+  font-size: 0.95rem;
+  line-height: 1.4;
+  resize: vertical;
+  box-sizing: border-box;
+}
+
+.image-upload-caption:focus {
+  outline: none;
+  border-color: var(--accent);
 }
 
 .image-upload-confirm-meta {

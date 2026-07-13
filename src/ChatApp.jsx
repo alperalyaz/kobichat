@@ -551,6 +551,11 @@ function ChatMessageBubble({
                     }
                   />
                 ) : null}
+                {m.text_content ? (
+                  <div className="msg-file-caption msg-body--emoji-rich">
+                    <EmojiRichText text={m.text_content} />
+                  </div>
+                ) : null}
               </>
             )}
           </div>
@@ -617,6 +622,8 @@ export default function ChatApp() {
    */
   const completedDownloadsRef = useRef(new Set());
   const [pendingImageUpload, setPendingImageUpload] = useState(null);
+  /** Resim önizleme modalında yazılan alt yazı (caption) — resimle birlikte gider. */
+  const [pendingCaption, setPendingCaption] = useState("");
   /**
    * Yükleme akışı sayaçları:
    *  - `uploadingCount`: o an havada olan upload sayısı (UI rozetinde gösterilir).
@@ -2011,7 +2018,7 @@ export default function ChatApp() {
     return () => document.removeEventListener("keydown", onKeyDown, true);
   }, [canSend, mySocketId, sendTextContent]);
 
-  const uploadFiles = async (files) => {
+  const uploadFiles = async (files, caption = "") => {
     const list = Array.from(files || []).filter(Boolean);
     if (!list.length || !canSend || !mySocketId) return;
     if (peerIsAway) {
@@ -2025,10 +2032,17 @@ export default function ChatApp() {
       alert(t("uploadFailed"));
       return;
     }
+    /**
+     * WhatsApp benzeri alt yazı (caption): metin yalnızca TEK mesaja iliştirilir
+     * — tercihen ilk resim, resim yoksa ilk dosya. Böylece çoklu yüklemede her
+     * dosyaya tekrar yazılmaz.
+     */
+    const cap = String(caption || "").trim().slice(0, 8000);
+    const captionIdx = cap ? Math.max(0, list.findIndex((f) => isImageMime(f.type))) : -1;
     setUploadingCount((c) => c + list.length);
     let okCount = 0;
     const failedNames = [];
-    for (const file of list) {
+    for (const [idx, file] of list.entries()) {
       const clientMsgId = crypto.randomUUID();
       let uploaded = false;
       const form = new FormData();
@@ -2039,6 +2053,7 @@ export default function ChatApp() {
       form.append("toSocketId", peerSocketId || "");
       form.append("peerClientUuid", peerClientUuid);
       form.append("clientMsgId", clientMsgId);
+      if (cap && idx === captionIdx) form.append("caption", cap);
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), uploadTimeoutMsForFile(file));
       try {
@@ -2082,6 +2097,9 @@ export default function ChatApp() {
       await uploadFiles(list);
       return;
     }
+    /** Composer'da yazı varsa alt yazıya taşı (WhatsApp gibi); gönderince temizlenir. */
+    const currentDraft = (composerRef.current ? serializeComposer(composerRef.current) : draft).trim();
+    setPendingCaption(currentDraft);
     setPendingImageUpload({
       files: list,
       previewFile: firstImage,
@@ -2092,8 +2110,13 @@ export default function ChatApp() {
 
   const confirmPendingImageUpload = async () => {
     const files = pendingImageUpload?.files || [];
+    const caption = pendingCaption;
     closePendingImageUpload();
-    await uploadFiles(files);
+    setPendingCaption("");
+    /** Alt yazı resimle gitti → composer'ı temizle. */
+    setDraft("");
+    if (composerRef.current) composerRef.current.innerHTML = "";
+    await uploadFiles(files, caption);
   };
 
   const onPaste = async (e) => {
@@ -2459,6 +2482,21 @@ export default function ChatApp() {
                 {t("imageUploadConfirmMultiple", { count: pendingImageUpload.files.length })}
               </p>
             ) : null}
+            <textarea
+              className="image-upload-caption"
+              rows={2}
+              autoFocus
+              value={pendingCaption}
+              onChange={(e) => setPendingCaption(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && !e.shiftKey) {
+                  e.preventDefault();
+                  void confirmPendingImageUpload();
+                }
+              }}
+              placeholder={t("imageCaptionPlaceholder")}
+              aria-label={t("imageCaptionPlaceholder")}
+            />
             <div className="modal-actions">
               <button type="button" className="btn" onClick={closePendingImageUpload}>
                 {t("imageUploadConfirmCancel")}

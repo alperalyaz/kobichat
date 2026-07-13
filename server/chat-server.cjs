@@ -762,6 +762,8 @@ async function createChatServer(options) {
         return;
       }
       const sender = String(req.body.displayName || "Anonim").slice(0, 21);
+      /** WhatsApp benzeri alt yazı: dosya mesajıyla birlikte gelen metin (text_content). */
+      const caption = String(req.body.caption || "").slice(0, MAX_DM_TEXT_CHARS).trim() || null;
       let fromSocketId = String(req.body.fromSocketId || "").trim();
       const toSocketId = String(req.body.toSocketId || "").trim();
       const clientUuid = normalizeClientUuid(req.body.clientUuid || "");
@@ -831,7 +833,7 @@ async function createChatServer(options) {
         [
           sender,
           "file",
-          null,
+          caption,
           originalFileName,
           rel,
           req.file.mimetype || "application/octet-stream",
@@ -852,7 +854,7 @@ async function createChatServer(options) {
         id,
         sender,
         kind: "file",
-        text_content: null,
+        text_content: caption,
         file_name: originalFileName,
         file_rel: rel,
         file_mime: req.file.mimetype || "application/octet-stream",
