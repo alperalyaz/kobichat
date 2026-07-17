@@ -1240,17 +1240,27 @@ export default function ChatApp() {
         const wasNearBottom = isUserNearBottom(scrollContainerRef.current);
         setMessages((prev) => {
           /**
-           * Geçmiş yüklenince, sunucunun artık sahip olduğu (client_msg_id
-           * eşleşen) optimistik "local-" mesajları düş; aksi halde echo
-           * tamamen kaçmışsa optimistik mesaj yanlış saatle ve gerçek sürümle
-           * birlikte (mükerrer) kalabiliyordu.
+           * Geçmiş yüklenince optimistik "local-" mesajları temizle:
+           *  1) Sunucunun artık sahip olduğu (client_msg_id eşleşen) → düş,
+           *     çünkü gerçek sürümü aşağıda merge edilecek (mükerrer/yanlış
+           *     saat önlenir).
+           *  2) Sunucuda YOK ve ESKİ (30 sn'den yaşlı) → düş. Bunlar gönderimi
+           *     başarısız olmuş hayaletlerdir; localStorage önbelleğinden geri
+           *     yüklenip "en altta takılı kalıyor" sorununu yaratıyorlardı.
+           *     Yalnızca çok yeni (bu oturumda henüz gönderilen, echo'su
+           *     yolda olabilecek) optimistikler korunur.
            */
           const serverCmids = new Set(
             list.map((m) => (m?.client_msg_id ? String(m.client_msg_id) : "")).filter(Boolean)
           );
+          const nowMs = Date.now();
+          const STALE_OPTIMISTIC_MS = 30000;
           const cleanedPrev = prev.filter((m) => {
             if (!String(m.id).startsWith("local-")) return true;
-            return !(m.client_msg_id && serverCmids.has(String(m.client_msg_id)));
+            if (m.client_msg_id && serverCmids.has(String(m.client_msg_id))) return false;
+            const ageMs = nowMs - new Date(m.created_at).getTime();
+            if (Number.isFinite(ageMs) && ageMs > STALE_OPTIMISTIC_MS) return false;
+            return true;
           });
           const combined = mergeMessageListsById(list, cleanedPrev);
           messagesRef.current = combined;
