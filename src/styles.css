@@ -1368,6 +1368,31 @@ html[data-theme="dark"] .msg-avatar--fallback {
   color: #dc2626;
 }
 
+.msg-failed-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 6px;
+}
+
+.msg-failed-btn {
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: inherit;
+  font: inherit;
+  font-size: 0.8rem;
+  padding: 3px 10px;
+  border-radius: 999px;
+  cursor: pointer;
+}
+
+.msg-failed-btn:hover {
+  border-color: var(--accent);
+}
+
+.msg-failed-btn--del {
+  color: #dc2626;
+}
+
 .msg-body {
   font-size: 0.95rem;
   line-height: 1.45;

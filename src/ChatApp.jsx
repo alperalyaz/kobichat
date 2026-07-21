@@ -374,7 +374,9 @@ function ChatMessageBubble({
   statusState,
   avatarImage,
   avatarName,
-  downloadProgress
+  downloadProgress,
+  onRetryMessage,
+  onDeleteMessage
 }) {
   const { t, locale } = useI18n();
   const timeLabel = formatMsgTime(m.created_at, locale);
@@ -560,6 +562,24 @@ function ChatMessageBubble({
             )}
           </div>
         )}
+        {isMine && statusState === "failed" ? (
+          <div className="msg-failed-actions">
+            <button
+              type="button"
+              className="msg-failed-btn"
+              onClick={() => onRetryMessage?.(m)}
+            >
+              {t("messageRetry")}
+            </button>
+            <button
+              type="button"
+              className="msg-failed-btn msg-failed-btn--del"
+              onClick={() => onDeleteMessage?.(m)}
+            >
+              {t("messageDelete")}
+            </button>
+          </div>
+        ) : null}
       </div>
     </article>
   );
@@ -1910,6 +1930,28 @@ export default function ChatApp() {
     if (typingTimerRef.current) clearTimeout(typingTimerRef.current);
   };
 
+  /** Gönderilemeyen (⚠) bir mesajı görünümden kaldır. Önbelleğe zaten yazılmıyor. */
+  const deleteLocalMessage = useCallback((msg) => {
+    const id = String(msg?.id || "");
+    if (!id) return;
+    setMessages((prev) => {
+      const next = prev.filter((m) => String(m.id) !== id);
+      messagesRef.current = next;
+      return next;
+    });
+  }, []);
+
+  /** Gönderilemeyen mesajı yeniden gönder: eskisini kaldırıp taze bir gönderim yap. */
+  const retryFailedMessage = useCallback(
+    (msg) => {
+      const text = String(msg?.text_content || "").trim();
+      if (!text) return;
+      deleteLocalMessage(msg);
+      sendTextContent(text);
+    },
+    [deleteLocalMessage, sendTextContent]
+  );
+
   const openQuickPanel = useCallback(() => {
     setEmojiPickerOpen(false);
     setQuickRows(loadQuickMessages());
@@ -2270,6 +2312,8 @@ export default function ChatApp() {
                     localPath={localDownloadByMessageId[String(m.id)] || ""}
                     onImagePreview={setAttachmentPreview}
                     statusState={statusStateForMessage(m)}
+                    onRetryMessage={retryFailedMessage}
+                    onDeleteMessage={deleteLocalMessage}
                     avatarImage={isMineMessage(m) ? myProfileImage : peerProfileImage}
                     avatarName={isMineMessage(m) ? displayName : peerName}
                     downloadProgress={downloadProgress[String(m.id)] || null}
@@ -2628,6 +2672,8 @@ export default function ChatApp() {
                         localPath={localDownloadByMessageId[String(m.id)] || ""}
                         onImagePreview={setAttachmentPreview}
                         statusState={statusStateForMessage(m)}
+                        onRetryMessage={retryFailedMessage}
+                        onDeleteMessage={deleteLocalMessage}
                         avatarImage={isMineMessage(m) ? myProfileImage : peerProfileImage}
                         avatarName={isMineMessage(m) ? displayName : peerName}
                         downloadProgress={downloadProgress[String(m.id)] || null}
