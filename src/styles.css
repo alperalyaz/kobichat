@@ -3235,3 +3235,72 @@ html[data-theme="light"] .qm-row__send:hover:not(:disabled) {
   outline: 2px solid rgba(56, 189, 248, 0.35);
   outline-offset: 0;
 }
+
+/* Ctrl+F mesaj arama paneli */
+.search-modal-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 16px 10px;
+}
+
+.search-modal-input {
+  flex: 1;
+  padding: 9px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg);
+  color: inherit;
+  font: inherit;
+  font-size: 0.95rem;
+}
+
+.search-modal-input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.search-modal-count {
+  font-size: 0.82rem;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.search-result {
+  padding: 9px 12px;
+  margin-bottom: 8px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg);
+}
+
+.search-result--mine {
+  border-color: #bfdbfe;
+}
+
+.search-result__meta {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 0.78rem;
+  color: var(--muted);
+  margin-bottom: 3px;
+}
+
+.search-result__sender {
+  font-weight: 600;
+}
+
+.search-result__text {
+  font-size: 0.93rem;
+  line-height: 1.4;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.search-result__text mark {
+  background: #fde68a;
+  color: inherit;
+  border-radius: 3px;
+  padding: 0 1px;
+}

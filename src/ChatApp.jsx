@@ -363,6 +363,26 @@ function triggerPokeIncomingAttentionCss() {
   window.setTimeout(() => el.classList.remove("kobi-attention-poke-incoming"), 1000);
 }
 
+/** Arama sonucunda eşleşen bölümü <mark> ile vurgular (Türkçe büyük/küçük duyarsız). */
+function SearchHighlight({ text, query }) {
+  const s = String(text ?? "");
+  const q = String(query ?? "").trim();
+  if (q.length < 2) return <>{s}</>;
+  const hay = s.toLocaleLowerCase("tr-TR");
+  const needle = q.toLocaleLowerCase("tr-TR");
+  const parts = [];
+  let from = 0;
+  for (let guard = 0; guard < 50; guard += 1) {
+    const at = hay.indexOf(needle, from);
+    if (at < 0) break;
+    if (at > from) parts.push(s.slice(from, at));
+    parts.push(<mark key={`${at}-${guard}`}>{s.slice(at, at + needle.length)}</mark>);
+    from = at + needle.length;
+  }
+  parts.push(s.slice(from));
+  return <>{parts}</>;
+}
+
 function ChatMessageBubble({
   m,
   filePublicUrl,
@@ -615,6 +635,10 @@ export default function ChatApp() {
    * yalnızca bugünkü mesajları gösteriyor; bu sayede scroll yarışı yok.
    */
   const [historyModalOpen, setHistoryModalOpen] = useState(false);
+  /** Ctrl+F mesaj arama: panel açık mı + arama metni. */
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const searchInputRef = useRef(null);
   const historyModalBodyRef = useRef(null);
   const [draft, setDraft] = useState("");
   const [dragOver, setDragOver] = useState(false);
@@ -904,6 +928,47 @@ export default function ChatApp() {
       void window.kobiChat.setWindowTitle(title);
     }
   }, [peerName, peerStatusText, t]);
+
+  /**
+   * Görev çubuğu / pencere simgesi = karşı tarafın profil resmi. Böylece
+   * taskbar'da hangi sohbetin kime ait olduğu tek bakışta anlaşılır.
+   * Profil resimleri webp data URI olarak saklanıyor; nativeImage webp'i her
+   * platformda çözemediğinden burada canvas ile 64x64 PNG'ye çevriliyor.
+   * Profil resmi yoksa varsayılan uygulama simgesi geri gelir.
+   */
+  useEffect(() => {
+    if (typeof window.kobiChat?.setWindowIcon !== "function") return undefined;
+    const src = String(peerProfileImage || "").trim();
+    if (!src.startsWith("data:image/")) {
+      void window.kobiChat.setWindowIcon("");
+      return undefined;
+    }
+    let cancelled = false;
+    const img = new Image();
+    img.onload = () => {
+      if (cancelled) return;
+      try {
+        const size = 64;
+        const canvas = document.createElement("canvas");
+        canvas.width = size;
+        canvas.height = size;
+        const ctx = canvas.getContext("2d");
+        if (!ctx) return;
+        /** Kare doldur (cover): kısa kenara göre kırp, ortala. */
+        const sw = img.naturalWidth || size;
+        const sh = img.naturalHeight || size;
+        const side = Math.min(sw, sh);
+        ctx.drawImage(img, (sw - side) / 2, (sh - side) / 2, side, side, 0, 0, size, size);
+        void window.kobiChat.setWindowIcon(canvas.toDataURL("image/png"));
+      } catch {
+        // ignored — simge değişmezse varsayılan kalır
+      }
+    };
+    img.src = src;
+    return () => {
+      cancelled = true;
+    };
+  }, [peerProfileImage]);
 
   // Pencere kapanıp açıldığında sunucu yanıtını beklemeden önbellekten mesajları yükle
   useEffect(() => {
@@ -1535,6 +1600,29 @@ export default function ChatApp() {
   const pastDayGroups = useMemo(() => groupMessagesByDay(pastMessages, t, locale), [pastMessages, t, locale]);
 
   /**
+   * Ctrl+F arama: TÜM mesajlarda (bugünkü + geçmiş) metin, alt yazı ve dosya
+   * adı üzerinde arar. Sonuçlar en yeniden eskiye sıralanır; böylece ekranda
+   * render edilmeyen eski mesajlar da bulunabilir.
+   */
+  const searchResults = useMemo(() => {
+    const q = searchQuery.trim().toLocaleLowerCase("tr-TR");
+    if (q.length < 2) return [];
+    const out = [];
+    for (const m of messages) {
+      const text = String(m?.text_content || "");
+      const fname = normalizePossiblyMojibakeFilename(m?.file_name || "");
+      if (`${text} ${fname}`.toLocaleLowerCase("tr-TR").includes(q)) out.push(m);
+    }
+    out.reverse();
+    return out.slice(0, 300);
+  }, [messages, searchQuery]);
+
+  const closeSearch = useCallback(() => {
+    setSearchOpen(false);
+    setSearchQuery("");
+  }, []);
+
+  /**
    * Modal açılınca otomatik dibe in: kronolojik sıralamada (eski → yeni)
    * ana sohbet penceresinin mantığını takip ediyoruz. Kullanıcının ilk
    * gördüğü şey "en yakın geçmiş" (örn. dün) olmalı; daha eskileri görmek
@@ -2044,13 +2132,36 @@ export default function ChatApp() {
         closeQuickPanel();
         return;
       }
+      if (searchOpen) {
+        e.preventDefault();
+        e.stopPropagation();
+        closeSearch();
+        return;
+      }
       e.preventDefault();
       e.stopPropagation();
       window.close();
     };
     document.addEventListener("keydown", onEscClose, true);
     return () => document.removeEventListener("keydown", onEscClose, true);
-  }, [profileZoomOpen, attachmentPreview, pendingImageUpload, closePendingImageUpload, historyModalOpen, quickPanelOpen, closeQuickPanel]);
+  }, [profileZoomOpen, attachmentPreview, pendingImageUpload, closePendingImageUpload, historyModalOpen, quickPanelOpen, closeQuickPanel, searchOpen, closeSearch]);
+
+  /** Ctrl+F → mesajlarda arama panelini aç (Chromium'un kendi bulma çubuğunu bastır). */
+  useEffect(() => {
+    const onFind = (e) => {
+      if (!e.ctrlKey || e.altKey || e.metaKey || e.shiftKey) return;
+      if (e.code !== "KeyF") return;
+      e.preventDefault();
+      e.stopPropagation();
+      setSearchOpen(true);
+      requestAnimationFrame(() => {
+        searchInputRef.current?.focus();
+        searchInputRef.current?.select();
+      });
+    };
+    document.addEventListener("keydown", onFind, true);
+    return () => document.removeEventListener("keydown", onFind, true);
+  }, []);
 
   useEffect(() => {
     if (!canSend || !mySocketId) return undefined;
@@ -2611,6 +2722,71 @@ export default function ChatApp() {
                 title={attachmentPreview.title || t("fileFallback")}
               />
             )}
+          </div>
+        </div>
+      ) : null}
+      {searchOpen ? (
+        <div className="modal-backdrop history-modal-backdrop" role="presentation" onClick={closeSearch}>
+          <div
+            className="modal history-modal search-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="search-modal-title"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="modal-header">
+              <h2 id="search-modal-title">
+                {t("searchTitle")} — {peerName || t("defaultUserName")}
+              </h2>
+              <button type="button" className="btn-modal-x" onClick={closeSearch} aria-label={t("cancel")}>
+                ×
+              </button>
+            </div>
+            <div className="search-modal-bar">
+              <input
+                ref={searchInputRef}
+                type="text"
+                className="search-modal-input"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder={t("searchPlaceholder")}
+                aria-label={t("searchPlaceholder")}
+                autoFocus
+              />
+              <span className="search-modal-count">
+                {searchQuery.trim().length < 2 ? "" : t("searchResultCount", { count: searchResults.length })}
+              </span>
+            </div>
+            <div className="history-modal-body">
+              {searchQuery.trim().length < 2 ? (
+                <div className="hint-banner">{t("searchHint")}</div>
+              ) : searchResults.length === 0 ? (
+                <div className="hint-banner">{t("searchNoResults")}</div>
+              ) : (
+                searchResults.map((m) => (
+                  <div key={m.id} className={`search-result${isMineMessage(m) ? " search-result--mine" : ""}`}>
+                    <div className="search-result__meta">
+                      <span className="search-result__sender">
+                        {isMineMessage(m) ? displayName || t("defaultUserName") : m.sender || peerName}
+                      </span>
+                      <time className="search-result__time" dateTime={m.created_at}>
+                        {formatMsgTime(m.created_at, locale)}
+                      </time>
+                    </div>
+                    <div className="search-result__text">
+                      <SearchHighlight
+                        text={
+                          m.text_content ||
+                          normalizePossiblyMojibakeFilename(m.file_name || "") ||
+                          t("fileFallback")
+                        }
+                        query={searchQuery}
+                      />
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
           </div>
         </div>
       ) : null}

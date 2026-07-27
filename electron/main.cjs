@@ -1938,6 +1938,33 @@ if (!app.requestSingleInstanceLock()) {
       }
     });
 
+    /**
+     * Sohbet penceresinin görev çubuğu / pencere simgesini karşı tarafın
+     * profil resmiyle değiştirir; taskbar'da hangi sohbetin kim olduğu tek
+     * bakışta anlaşılsın diye. Renderer PNG data URL gönderir: profil
+     * resimleri webp saklanıyor ve nativeImage webp'i her platformda
+     * çözemiyor, dönüştürme renderer'da canvas ile yapılıyor.
+     * Boş/geçersiz değerde varsayılan uygulama simgesine dönülür.
+     */
+    ipcMain.handle("kobichat:set-chat-window-icon", (event, pngDataUrl) => {
+      const w = BrowserWindow.fromWebContents(event.sender);
+      if (!w || w.isDestroyed()) return false;
+      try {
+        const s = typeof pngDataUrl === "string" ? pngDataUrl.trim() : "";
+        if (!s.startsWith("data:image/png;base64,")) {
+          const p = windowIconPath();
+          if (p) w.setIcon(p);
+          return true;
+        }
+        const img = nativeImage.createFromDataURL(s);
+        if (img.isEmpty()) return false;
+        w.setIcon(img);
+        return true;
+      } catch {
+        return false;
+      }
+    });
+
     app.on("activate", () => {
       if (BrowserWindow.getAllWindows().length === 0) createWindow();
       else {

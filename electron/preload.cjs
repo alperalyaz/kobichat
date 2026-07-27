@@ -75,6 +75,8 @@ contextBridge.exposeInMainWorld("kobiChat", {
   /** Roster → ana süreç: belirtilen peerClientUuid'ye ait sohbet penceresini doğrudan sallat. */
   shakeChatWindow: (peerClientUuid) => ipcRenderer.invoke("kobichat:shake-chat-window", peerClientUuid),
   setWindowTitle: (title) => ipcRenderer.invoke("kobichat:set-chat-window-title", title),
+  /** Sohbet penceresi simgesi = karşı tarafın profil resmi (PNG data URL). */
+  setWindowIcon: (pngDataUrl) => ipcRenderer.invoke("kobichat:set-chat-window-icon", pngDataUrl),
   onDownloadProgress: (fn) => {
     const handler = (_e, payload) => fn(payload);
     ipcRenderer.on("kobichat:download-progress", handler);
