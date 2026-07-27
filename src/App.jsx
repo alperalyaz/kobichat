@@ -425,6 +425,14 @@ function RosterApp({ settingsOnly = false }) {
   const [settingsTheme, setSettingsTheme] = useState(() => getStoredTheme());
   const [unreadPeerIds, setUnreadPeerIds] = useState([]);
   const [rosterDropPeerKey, setRosterDropPeerKey] = useState("");
+  /**
+   * Toplu mesaj: Ctrl+tık ile seçilen kişilerin clientUuid listesi, yazma
+   * penceresi ve gönderim durumu.
+   */
+  const [bulkSelected, setBulkSelected] = useState([]);
+  const [bulkOpen, setBulkOpen] = useState(false);
+  const [bulkText, setBulkText] = useState("");
+  const [bulkSending, setBulkSending] = useState(false);
 
   useEffect(() => {
     if (!settingsOnly) return;
@@ -882,6 +890,20 @@ function RosterApp({ settingsOnly = false }) {
   const removeUnreadPeer = useCallback((peerId) => {
     setUnreadPeerIds((prev) => prev.filter((id) => id !== peerId));
   }, []);
+
+  /** Toplu mesaj seçimi: Ctrl+tık ile kişiyi listeye ekle/çıkar. */
+  const toggleBulkSelect = useCallback((peer) => {
+    const cu = normalizeClientUuid(peer?.clientUuid || "");
+    if (!cu) return;
+    setBulkSelected((prev) => (prev.includes(cu) ? prev.filter((x) => x !== cu) : [...prev, cu]));
+  }, []);
+
+  const clearBulkSelection = useCallback(() => {
+    setBulkSelected([]);
+    setBulkOpen(false);
+    setBulkText("");
+  }, []);
+
 
   const uploadFilesToRosterPeer = useCallback(
     async (peer, files) => {
@@ -1655,6 +1677,53 @@ function RosterApp({ settingsOnly = false }) {
     [mergedOnlineUsers, mySocketId]
   );
 
+  /**
+   * Seçili kişilerin hepsine aynı metni ayrı birer özel mesaj olarak gönderir.
+   * Sunucu tarafında DM hız sınırı var (varsayılan 30 mesaj / 60 sn), bu yüzden
+   * gönderimler arasına küçük bir aralık konur. Alıcı çevrimdışıysa toSocketId
+   * boş gider ve sunucu mesajı kuyruğa alır.
+   */
+  const sendBulkMessage = useCallback(async () => {
+    const s = socketRef.current;
+    const text = bulkText.trim();
+    if (!s || !connected || !clientUuid || !text || bulkSelected.length === 0) return;
+    setBulkSending(true);
+    const byUuid = new Map(
+      rosterPeerUsers.map((u) => [normalizeClientUuid(u.clientUuid || ""), u]).filter(([k]) => k)
+    );
+    let sent = 0;
+    for (const cu of bulkSelected) {
+      const peer = byUuid.get(cu);
+      if (!peer) continue;
+      try {
+        s.emit("chat:message", {
+          text,
+          displayName: clampDisplayName(displayName) || t("defaultUserName"),
+          clientUuid,
+          toSocketId: peer.online === false ? "" : String(peer.id || ""),
+          peerClientUuid: cu,
+          clientMsgId: crypto.randomUUID()
+        });
+        sent += 1;
+      } catch {
+        // tek alıcıda hata diğerlerini engellemesin
+      }
+      await new Promise((r) => setTimeout(r, 120));
+    }
+    setBulkSending(false);
+    clearBulkSelection();
+    if (sent > 0) playSound("messageSent");
+  }, [
+    bulkText,
+    bulkSelected,
+    connected,
+    clientUuid,
+    displayName,
+    rosterPeerUsers,
+    t,
+    clearBulkSelection
+  ]);
+
   useEffect(() => {
     const s = socketRef.current;
     if (!s || !connected || !clientUuid) return;
@@ -2042,6 +2111,8 @@ function RosterApp({ settingsOnly = false }) {
                     String(u.displayName || "").trim() || t("defaultUserName");
                   const dropKey = String(u.clientUuid || u.id || "");
                   const isDropTarget = dropKey && rosterDropPeerKey === dropKey;
+                  const bulkKey = normalizeClientUuid(u.clientUuid || "");
+                  const isBulkSelected = Boolean(bulkKey) && bulkSelected.includes(bulkKey);
                   return (
                     <li
                       key={u.id}
@@ -2066,7 +2137,7 @@ function RosterApp({ settingsOnly = false }) {
                     >
                       <button
                         type="button"
-                        className={`sidebar-peer-btn ${hasUnread ? "has-unread" : ""} ${isOfflineRoster ? "is-offline" : ""} ${isDropTarget ? "is-drop-target" : ""}`}
+                        className={`sidebar-peer-btn ${hasUnread ? "has-unread" : ""} ${isOfflineRoster ? "is-offline" : ""} ${isDropTarget ? "is-drop-target" : ""} ${isBulkSelected ? "is-bulk-selected" : ""}`}
                         title={t("peerDoubleClickOpen")}
                         onDragEnter={(e) => {
                           const hasFileType = Array.from(e.dataTransfer?.types || []).includes("Files");
@@ -2082,8 +2153,15 @@ function RosterApp({ settingsOnly = false }) {
                           setRosterDropPeerKey(dropKey);
                         }}
                         onDrop={(e) => void onRosterPeerDrop(e, u)}
-                        onClick={() => {
+                        onClick={(e) => {
                           if (Date.now() < suppressPeerClickUntilRef.current) return;
+                          /** Ctrl/Cmd+tık: sohbeti açma, toplu mesaj için seç/kaldır. */
+                          if (e.ctrlKey || e.metaKey) {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            toggleBulkSelect(u);
+                            return;
+                          }
                           removeUnreadPeer(peerUnreadKey || u.id);
                           clearAttentionUi();
                           openPeerChatFromRoster(u, peerChatTitle);
@@ -2126,6 +2204,26 @@ function RosterApp({ settingsOnly = false }) {
               </>
             )}
           </ul>
+          {bulkSelected.length > 0 ? (
+            <div className="bulk-bar" role="region" aria-label={t("bulkTitle")}>
+              <span className="bulk-bar__count">
+                {t("bulkSelectedCount", { count: bulkSelected.length })}
+              </span>
+              <div className="bulk-bar__actions">
+                <button type="button" className="btn bulk-bar__clear" onClick={clearBulkSelection}>
+                  {t("bulkClear")}
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-primary"
+                  onClick={() => setBulkOpen(true)}
+                  disabled={!connected}
+                >
+                  {t("bulkSend")}
+                </button>
+              </div>
+            </div>
+          ) : null}
           {selfRosterUser ? (
             <ul className="sidebar-self-slot">
               {(() => {
@@ -2187,6 +2285,80 @@ function RosterApp({ settingsOnly = false }) {
           </aside>
         </div>
       ) : null}
+
+      {bulkOpen
+        ? createPortal(
+            <div
+              className="modal-backdrop"
+              role="presentation"
+              onClick={() => (bulkSending ? null : setBulkOpen(false))}
+            >
+              <div
+                className="modal bulk-modal"
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby="bulk-modal-title"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <div className="modal-header">
+                  <h2 id="bulk-modal-title">{t("bulkTitle")}</h2>
+                  <button
+                    type="button"
+                    className="btn-modal-x"
+                    onClick={() => setBulkOpen(false)}
+                    disabled={bulkSending}
+                    aria-label={t("cancel")}
+                  >
+                    ×
+                  </button>
+                </div>
+                <p className="bulk-modal__recipients">
+                  {t("bulkRecipients", {
+                    names: rosterPeerUsers
+                      .filter((u) => bulkSelected.includes(normalizeClientUuid(u.clientUuid || "")))
+                      .map((u) => String(u.displayName || "").trim() || t("defaultUserName"))
+                      .join(", ")
+                  })}
+                </p>
+                <textarea
+                  className="bulk-modal__textarea"
+                  rows={5}
+                  autoFocus
+                  value={bulkText}
+                  onChange={(e) => setBulkText(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && !e.shiftKey) {
+                      e.preventDefault();
+                      void sendBulkMessage();
+                    }
+                  }}
+                  placeholder={t("bulkPlaceholder")}
+                  aria-label={t("bulkPlaceholder")}
+                  disabled={bulkSending}
+                />
+                <div className="modal-actions">
+                  <button
+                    type="button"
+                    className="btn"
+                    onClick={() => setBulkOpen(false)}
+                    disabled={bulkSending}
+                  >
+                    {t("cancel")}
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn-primary"
+                    onClick={() => void sendBulkMessage()}
+                    disabled={bulkSending || !bulkText.trim() || !connected}
+                  >
+                    {bulkSending ? t("bulkSending") : t("bulkSendNow")}
+                  </button>
+                </div>
+              </div>
+            </div>,
+            document.body
+          )
+        : null}
 
       {settingsOpen
         ? createPortal(

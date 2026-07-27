@@ -3304,3 +3304,66 @@ html[data-theme="light"] .qm-row__send:hover:not(:disabled) {
   border-radius: 3px;
   padding: 0 1px;
 }
+
+/* Toplu mesaj: seçim çubuğu + yazma penceresi */
+.sidebar-peer-btn.is-bulk-selected {
+  background: #fff7ed;
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+
+.bulk-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 12px;
+  margin: 0 8px 6px;
+  border: 1px solid var(--accent);
+  border-radius: 10px;
+  background: #fff7ed;
+}
+
+.bulk-bar__count {
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.bulk-bar__actions {
+  display: flex;
+  gap: 6px;
+}
+
+.bulk-bar .btn {
+  padding: 4px 10px;
+  font-size: 0.82rem;
+}
+
+.bulk-modal {
+  max-width: 520px;
+}
+
+.bulk-modal__recipients {
+  margin: 0 0 10px;
+  font-size: 0.85rem;
+  color: var(--muted);
+  word-break: break-word;
+}
+
+.bulk-modal__textarea {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg);
+  color: inherit;
+  font: inherit;
+  font-size: 0.95rem;
+  line-height: 1.4;
+  resize: vertical;
+  box-sizing: border-box;
+}
+
+.bulk-modal__textarea:focus {
+  outline: none;
+  border-color: var(--accent);
+}
