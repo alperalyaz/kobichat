@@ -1491,8 +1491,15 @@ function RosterApp({ settingsOnly = false }) {
       const peerProfileImage =
         (rosterPeer?.profileImage && String(rosterPeer.profileImage).trim()) || "";
 
+      /**
+       * `pokeId`: bu relay aşağıda bir kez daha (1500 ms sonra) yollanıyor —
+       * sohbet penceresi yeni açılıyorsa ilkini kaçırabildiği için. Pencere
+       * zaten açıksa ikisi de ulaşıp mükerrer "Titreşim aldınız" satırı
+       * oluşuyordu; alıcı taraf bu kimlikle tekilleştirir.
+       */
       const pokeRelayPayload = {
         type: "socket:poke-incoming",
+        pokeId: `${fromCu || "?"}-${Date.now()}`,
         fromDisplayName: payload?.fromDisplayName,
         fromClientUuid: payload?.fromClientUuid
       };

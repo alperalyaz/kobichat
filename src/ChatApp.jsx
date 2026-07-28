@@ -227,13 +227,42 @@ function serverIdOrNull(m) {
  * onaylıysa id kararı verir (saatten bağımsız). Onaylı mesaj her zaman
  * optimistik (henüz gönderim onayı gelmemiş, en yeni) mesajın üstünde kalır.
  */
+/**
+ * Onaylanmamış (henüz sunucuya ulaşmamış) gönderim. Titreşim gibi yerel SİSTEM
+ * bildirimleri buna dahil DEĞİLDİR: onlar kalıcı kayıtlardır ve zaman sırasına
+ * göre araya girmelidir.
+ */
+function isPendingOptimistic(m) {
+  const s = String(m?.id ?? "");
+  if (!s.startsWith("local-")) return false;
+  return String(m?.kind || "").toLowerCase() !== "system";
+}
+
+function msgTimeMs(m) {
+  const t = new Date(m?.created_at).getTime();
+  return Number.isFinite(t) ? t : 0;
+}
+
+/**
+ * Sıralama: birincil anahtar zaman, eşitlikte sunucu id'si (aynı milisaniyede
+ * gelen mesajlar için kesin sıra). Onaylanmamış optimistik gönderimler ise —
+ * sunucu id'leri olmadığından ve tanım gereği en yeni olduklarından — her
+ * zaman en sonda tutulur.
+ *
+ * Eskiden TÜM "local-" kayıtlar en alta sabitleniyordu; bu yüzden titreşim
+ * bildirimleri kendilerinden sonra yazılan mesajların altında kalıyordu.
+ */
 function messageOrderComparator(a, b) {
+  const ap = isPendingOptimistic(a);
+  const bp = isPendingOptimistic(b);
+  if (ap !== bp) return ap ? 1 : -1;
+  const at = msgTimeMs(a);
+  const bt = msgTimeMs(b);
+  if (at !== bt) return at - bt;
   const ai = serverIdOrNull(a);
   const bi = serverIdOrNull(b);
   if (ai != null && bi != null) return ai - bi;
-  if (ai != null) return -1;
-  if (bi != null) return 1;
-  return new Date(a.created_at) - new Date(b.created_at);
+  return 0;
 }
 
 /** Sunucudan gelen geçmiş ile ekrandaki (message:new ile eklenen) mesajları birleştirir; geç gelen history yanıtı yeni mesajları silmez. */
@@ -692,6 +721,8 @@ export default function ChatApp() {
   const clientUuidRef = useRef("");
   const mySocketIdRef = useRef(null);
   const soundPlayedForRef = useRef(new Set());
+  /** Mükerrer titreşim relay'lerini elemek için görülen pokeId'ler. */
+  const seenPokeIdsRef = useRef(new Set());
   const dmOpenSentRef = useRef(false);
   /** Köprü yalnızca konuşma kimliği değişince sıfırlansın (mySocketId ile değil — dinleyici düşmesini önler) */
   const bridgeConvKeyRef = useRef("");
@@ -1398,6 +1429,15 @@ export default function ChatApp() {
           d.fromClientUuid || d.from_client_uuid || ""
         );
         if (!fromCu || fromCu !== normalizeClientUuid(peerClientUuid)) return;
+        /** Aynı titreşim relay'i iki kez yollanıyor (bkz. App.jsx); tekilleştir. */
+        const pokeId = String(d.pokeId || "").trim();
+        if (pokeId) {
+          if (seenPokeIdsRef.current.has(pokeId)) return;
+          seenPokeIdsRef.current.add(pokeId);
+          if (seenPokeIdsRef.current.size > 200) {
+            seenPokeIdsRef.current = new Set([pokeId]);
+          }
+        }
         const name = String(d.fromDisplayName || "").trim() || tRef.current("defaultUserName");
         appendPokeSystemLine(tRef.current("pokeChatLineReceived", { name }));
         triggerPokeIncomingAttentionCss();
