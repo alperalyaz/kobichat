@@ -1020,8 +1020,25 @@ export default function ChatApp() {
     saveMessageCache(peerClientUuid, messages);
   }, [messages, peerClientUuid]);
 
+  /**
+   * Mesaj bana mı ait? BİRİNCİL ÖLÇÜT `from_client_uuid`: kullanıcı kimliği
+   * kalıcıdır, sunucu hem canlı yayında hem geçmişte gönderir ve yeniden
+   * bağlanmadan etkilenmez.
+   *
+   * Eskiden sıra tersineydi ve üç tahmine dayanıyordu (id kümesi → socket id →
+   * görünen ad). `myMessageIdsRef`, durum/teslimat olaylarında koşulsuz
+   * dolduruluyordu; bir kez karşı tarafın mesaj id'si girince o mesaj kalıcı
+   * olarak "benim" sayılıp sağ tarafta, okundu tikiyle görünüyordu.
+   * Kimlik bilgisi olmayan ESKİ satırlar için eski sezgiler yedek kalır.
+   */
   const isMineMessage = (m) => {
     if (!m) return false;
+    const mineCu = normalizeClientUuid(clientUuidRef.current || clientUuid);
+    const fromCu = normalizeClientUuid(m.from_client_uuid || "");
+    if (mineCu && fromCu) return fromCu === mineCu;
+    /** Karşı tarafın kimliği belliyse ve bu mesaj ona aitse kesinlikle benim değil. */
+    const peerCu = normalizeClientUuid(peerClientUuid);
+    if (peerCu && fromCu && fromCu === peerCu) return false;
     const msgId = m?.id != null ? String(m.id) : "";
     if (msgId && myMessageIdsRef.current.has(msgId)) return true;
     if (m.from_socket_id && mySocketId && m.from_socket_id === mySocketId) return true;
@@ -1413,7 +1430,17 @@ export default function ChatApp() {
       if (d.type === "socket:message:status") {
         const payload = d.payload || {};
         if (payload?.messageId == null || typeof payload?.status !== "string") return;
-        myMessageIdsRef.current.add(String(payload.messageId));
+        /**
+         * Durum olayları tüm sohbet pencerelerine yayınlanıyor. Eskiden burada
+         * koşulsuz `myMessageIdsRef.add()` yapılıyordu; bu, karşı tarafa ait bir
+         * id'yi "benim" olarak işaretleyip mesajı yanlış tarafta gösteriyordu.
+         * Yalnızca bu sohbette gerçekten bize ait bilinen mesajları işaretle.
+         */
+        {
+          const mid = String(payload.messageId);
+          const known = messagesRef.current.find((x) => String(x.id) === mid);
+          if (known && isMineMessage(known)) myMessageIdsRef.current.add(mid);
+        }
         setMessageStatusMap((prev) => {
           const key = String(payload.messageId);
           const nextStatus = payload.status === "read" ? "read" : "delivered";
@@ -1514,7 +1541,11 @@ export default function ChatApp() {
         const payload = d.payload || {};
         if (payload?.messageId == null || typeof payload?.delivery_state !== "string") return;
         const mid = String(payload.messageId);
-        myMessageIdsRef.current.add(mid);
+        /** bkz. socket:message:status — sahiplik yalnızca doğrulanmışsa işaretlenir. */
+        {
+          const known = messagesRef.current.find((x) => String(x.id) === mid);
+          if (known && isMineMessage(known)) myMessageIdsRef.current.add(mid);
+        }
         setMessages((prev) => {
           const next = prev.map((x) =>
             String(x.id) === mid ? { ...x, delivery_state: payload.delivery_state } : x
@@ -1990,6 +2021,8 @@ export default function ChatApp() {
           created_at: new Date().toISOString(),
           conv_id: cid,
           from_socket_id: mySocketId,
+          /** Sahiplik tespitinin birincil ölçütü (bkz. isMineMessage). */
+          from_client_uuid: normalizeClientUuid(clientUuidRef.current || clientUuid),
           client_msg_id: clientMsgId
         };
         setMessages((prev) => {
