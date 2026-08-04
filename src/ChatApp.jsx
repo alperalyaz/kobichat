@@ -1213,8 +1213,18 @@ export default function ChatApp() {
       if (!isDmConvForPeerAndMe(msg.conv_id, peer, my)) return;
       const fromSocket = msg?.from_socket_id;
       const sid = mySocketIdRef.current;
+      /**
+       * "Gelen mi?" kararı ÖNCE kalıcı kullanıcı kimliğine bakar. Eskiden
+       * yalnızca socket id karşılaştırılıyordu; `from_socket_id` boş/eksik
+       * gelen bir mesajda (kuyruktan aktarım, eski satır) `incoming` yanlışlıkla
+       * false oluyor ve mesaj "benim" olarak işaretlenip karşı tarafın mesajı
+       * kendi tarafımızda, okundu tikiyle görünüyordu.
+       */
+      const fromCu = normalizeClientUuid(msg?.from_client_uuid || "");
       const incoming =
-        typeof fromSocket === "string" && fromSocket.length > 0 && fromSocket !== sid;
+        fromCu && my
+          ? fromCu !== my
+          : typeof fromSocket === "string" && fromSocket.length > 0 && fromSocket !== sid;
       if (!incoming && msg?.id != null) {
         myMessageIdsRef.current.add(String(msg.id));
       }
