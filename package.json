@@ -1,6 +1,6 @@
 {
   "name": "kobichat",
-  "version": "1.9.24",
+  "version": "1.10.0",
   "private": true,
   "author": "Hidroteknik",
   "description": "KobiChat — yerel ağ masaüstü sohbet (SQLite, UTF-8, dosya paylaşımı)",
