@@ -287,7 +287,18 @@ const MSG_CACHE_PREFIX = "kobiChatMsgCache_v1_";
 const MSG_CACHE_MAX = 200;
 const MSG_CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 /** Optimistik mesaj bu süre içinde sunucuca onaylanmazsa "gönderilemedi" sayılır. */
-const SEND_CONFIRM_TIMEOUT_MS = 12000;
+/**
+ * Optimistik mesaj bu süre içinde sunucuca onaylanmazsa "gönderilemedi" sayılır.
+ *
+ * 12 sn idi; sunucu bağlantı logu (connections.jsonl) 12 sn'nin YANLIŞ ALARM
+ * ürettiğini gösterdi: "gönderilemedi" işaretlenen bir mesajın gerçekte
+ * ulaştığı, o anda hiçbir kopma olmadığı (en yakın kopmalar saatler öncesi ve
+ * sonrası) tespit edildi. Yerel ağda echo normalde <1 sn gelir; gecikme
+ * yalnızca pencereler arası aktarımın kısa süre takılmasından kaynaklanır.
+ * 30 sn, gerçek bir arızayı yine hızla yakalar ama sağlıklı gönderimleri
+ * suçlamaz.
+ */
+const SEND_CONFIRM_TIMEOUT_MS = 30000;
 
 function loadMessageCache(peerCu) {
   if (!peerCu) return [];
@@ -2060,6 +2071,22 @@ export default function ChatApp() {
          */
         window.setTimeout(() => {
           setMessages((prev) => {
+            /**
+             * Suçlamadan önce son kontrol: aynı client_msg_id ile ONAYLI
+             * (sunucu id'li) bir kopya listede varsa mesaj aslında ulaşmıştır;
+             * optimistik satırı "gönderilemedi" diye işaretlemek yerine kaldır.
+             */
+            const confirmed = prev.some(
+              (m) =>
+                !String(m.id).startsWith("local-") &&
+                m.client_msg_id &&
+                String(m.client_msg_id) === clientMsgId
+            );
+            if (confirmed) {
+              const cleaned = prev.filter((m) => String(m.id) !== tempId);
+              messagesRef.current = cleaned;
+              return cleaned;
+            }
             let changed = false;
             const next = prev.map((m) => {
               if (String(m.id) === tempId && !m.send_failed) {
