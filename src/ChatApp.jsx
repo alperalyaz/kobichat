@@ -1035,10 +1035,18 @@ export default function ChatApp() {
     if (!m) return false;
     const mineCu = normalizeClientUuid(clientUuidRef.current || clientUuid);
     const fromCu = normalizeClientUuid(m.from_client_uuid || "");
-    if (mineCu && fromCu) return fromCu === mineCu;
-    /** Karşı tarafın kimliği belliyse ve bu mesaj ona aitse kesinlikle benim değil. */
     const peerCu = normalizeClientUuid(peerClientUuid);
-    if (peerCu && fromCu && fromCu === peerCu) return false;
+    if (fromCu) {
+      if (mineCu) return fromCu === mineCu;
+      /**
+       * Kendi kimliğim HENÜZ yüklenmedi (açılış anı: `clientUuid` ayarlardan
+       * asenkron geliyor, `peerClientUuid` ise URL'den anında hazır). Özel
+       * sohbette yalnızca iki taraf vardır; bu yüzden "karşı taraf değilse
+       * benim" güvenli bir çıkarımdır. Bu olmadan, bağlantı kurulana kadar
+       * kendi mesajlarım karşı tarafınmış gibi solda görünüyordu.
+       */
+      if (peerCu) return fromCu !== peerCu;
+    }
     const msgId = m?.id != null ? String(m.id) : "";
     if (msgId && myMessageIdsRef.current.has(msgId)) return true;
     if (m.from_socket_id && mySocketId && m.from_socket_id === mySocketId) return true;
@@ -1221,10 +1229,12 @@ export default function ChatApp() {
        * kendi tarafımızda, okundu tikiyle görünüyordu.
        */
       const fromCu = normalizeClientUuid(msg?.from_client_uuid || "");
-      const incoming =
-        fromCu && my
+      const incoming = fromCu
+        ? my
           ? fromCu !== my
-          : typeof fromSocket === "string" && fromSocket.length > 0 && fromSocket !== sid;
+          : /** Kimliğim henüz yüklenmediyse: özel sohbette karşı taraf ise gelendir. */
+            fromCu === peer
+        : typeof fromSocket === "string" && fromSocket.length > 0 && fromSocket !== sid;
       if (!incoming && msg?.id != null) {
         myMessageIdsRef.current.add(String(msg.id));
       }
