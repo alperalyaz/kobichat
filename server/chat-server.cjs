@@ -9,6 +9,14 @@ const { Server } = require("socket.io");
 const { randomUUID, createHash } = require("crypto");
 
 const DEFAULT_PORT = 3847;
+/** Sunucu sürümü (/api/server-meta ile dışarı verilir; teşhis için). */
+const SERVER_VERSION = (() => {
+  try {
+    return String(require("../package.json").version || "");
+  } catch {
+    return "";
+  }
+})();
 /**
  * DM geçmişi: sohbet açılışında yüklenecek en son N mesaj (kronolojik sırada döner).
  * ORDER BY id DESC + reverse — en eski N kayıt değil, en güncel pencere.
@@ -415,6 +423,10 @@ async function createChatServer(options) {
     res.setHeader("Cache-Control", "no-store");
     res.json({
       app: "kobichat-chat-server",
+      /** Sunucunun hangi sürümde koştuğu — "sunucu güncel mi?" teşhisi için. */
+      version: SERVER_VERSION,
+      /** Dosya mesajına alt yazı (caption) desteği; 1.9.16 öncesinde yoktur. */
+      captionSupport: true,
       /** İstemci titreşim (poke) için Socket.IO ack bekler; eski sunucuda bu alan yoktur. */
       pokeSendAck: true,
       pid: process.pid,

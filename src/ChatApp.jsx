@@ -2324,6 +2324,8 @@ export default function ChatApp() {
     const captionIdx = cap ? Math.max(0, list.findIndex((f) => isImageMime(f.type))) : -1;
     setUploadingCount((c) => c + list.length);
     let okCount = 0;
+    /** Sunucu alt yazıyı sakladı mı? (eski sunucularda yok sayılır) */
+    let captionStored = false;
     const failedNames = [];
     for (const [idx, file] of list.entries()) {
       const clientMsgId = crypto.randomUUID();
@@ -2339,6 +2341,7 @@ export default function ChatApp() {
       if (cap && idx === captionIdx) form.append("caption", cap);
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), uploadTimeoutMsForFile(file));
+      const sentCaptionHere = Boolean(cap && idx === captionIdx);
       try {
         const res = await fetch(`${uploadBase}/api/upload`, {
           method: "POST",
@@ -2346,6 +2349,20 @@ export default function ChatApp() {
           signal: controller.signal
         });
         uploaded = res.ok;
+        /**
+         * Alt yazının GERÇEKTEN saklandığını doğrula: sunucu 1.9.16'dan eski
+         * ise `caption` alanını tanımaz, sessizce yok sayar ve yazı kaybolur
+         * (composer'ı gönderirken temizlediğimiz için tamamen uçuyordu).
+         * Yanıt `text_content` döndürmediyse alt yazı düşmüş demektir.
+         */
+        if (uploaded && sentCaptionHere) {
+          try {
+            const data = await res.json();
+            captionStored = Boolean(data?.message?.text_content);
+          } catch {
+            captionStored = false;
+          }
+        }
       } catch {
         uploaded = false;
       } finally {
@@ -2357,6 +2374,13 @@ export default function ChatApp() {
       } else {
         failedNames.push(file?.name || "");
       }
+    }
+    /**
+     * Alt yazı iliştirilemediyse (eski sunucu) yazıyı kaybetme: ayrı bir
+     * metin mesajı olarak gönder. Kullanıcı için sonuç yine "resim + yazı".
+     */
+    if (cap && okCount > 0 && !captionStored) {
+      sendTextContent(cap);
     }
     if (okCount > 0) playSound("fileSent");
     if (failedNames.length === 0) return;
