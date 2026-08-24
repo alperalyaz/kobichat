@@ -1706,19 +1706,26 @@ if (!app.requestSingleInstanceLock()) {
     settingsStore = await openSettingsStore(app.getPath("userData"));
     normalizeSettingsForVersion(app.getVersion());
     const st = settingsStore.getAll();
-    if (app.isPackaged && (process.platform === "win32" || process.platform === "darwin")) {
+    /**
+     * MSIX / Microsoft Store paketinde otomatik başlatma manifest'teki
+     * `windows.startupTask` uzantısıyla yapılır (package.json →
+     * build.appx.addAutoLaunchExtension). Registry sanallaştırması yüzünden
+     * `setLoginItemSettings` orada HKCU\Run'a gerçekten yazamaz; yazsa bile
+     * paket hive'ına hapsolur ve oturum açılışında çalışmaz. Bu yüzden Store
+     * sürümünde bu yolu hiç denemiyoruz. `process.windowsStore`, uygulama
+     * AppX/MSIX olarak çalışıyorsa true olur.
+     */
+    const isMsixPackaged = process.platform === "win32" && Boolean(process.windowsStore);
+    if (app.isPackaged && !isMsixPackaged && (process.platform === "win32" || process.platform === "darwin")) {
       /**
-       * Otomatik başlatmayı HER açılışta doğrula (eskiden yalnızca ilk açılışta
-       * bir kez kuruluyordu). Windows güncelleme sonrası execPath değişince veya
-       * Run anahtarı temizlenince eski davranışta bir daha asla geri gelmiyordu;
-       * bazı bilgisayarlarda "başlangıçta açılmıyor" sorununun nedeni buydu.
-       * Kapalıysa yeniden aç — kendi kendini onarır. Kullanıcı Görev
-       * Yöneticisi'nden bilinçli kapattıysa Windows StartupApproved kaydı
-       * geçerli kalır; bu çağrı onu ezmez.
-       *
-       * NOT: Microsoft Store (MSIX) sürümünde otomatik başlatma Run anahtarıyla
-       * çalışmaz; manifest'te startupTask gerekir. Store istemcilerinde bu kod
-       * etkisizdir — orası ayrıca ele alınmalı.
+       * NSIS (.exe) kurulumları: otomatik başlatmayı HER açılışta doğrula
+       * (eskiden yalnızca ilk açılışta bir kez kuruluyordu). Windows güncelleme
+       * sonrası execPath değişince veya Run anahtarı temizlenince eski
+       * davranışta bir daha asla geri gelmiyordu; bazı bilgisayarlarda
+       * "başlangıçta açılmıyor" sorununun nedeni buydu. Kapalıysa yeniden aç —
+       * kendi kendini onarır. Kullanıcı Görev Yöneticisi'nden bilinçli
+       * kapattıysa Windows StartupApproved kaydı geçerli kalır; bu çağrı onu
+       * ezmez.
        */
       try {
         const li = app.getLoginItemSettings();
