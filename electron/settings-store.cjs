@@ -59,8 +59,31 @@ const DEFAULTS = {
   /** Hangi uygulama sürümünde son kez normalize edildi */
   lastRunVersion: "",
   /** Bir kez true yapıldıktan sonra oturum açılışında başlatmayı tekrar zorlamaz */
-  loginItemSetupDone: false
+  loginItemSetupDone: false,
+  /**
+   * Kişi listesini öne getiren genel (global) kısayol — Electron accelerator
+   * biçiminde. Bazı uygulamalarla çakışabildiği için kullanıcı değiştirebilir.
+   */
+  globalShortcut: "CommandOrControl+Shift+K"
 };
+
+/** Electron accelerator doğrulaması: en az bir değiştirici + bir ana tuş. */
+const ACCEL_MODIFIERS = new Set(["CommandOrControl", "Command", "Control", "Ctrl", "Alt", "Option", "AltGr", "Shift", "Super", "Meta"]);
+
+function isValidAccelerator(value) {
+  const s = String(value || "").trim();
+  if (!s || s.length > 64) return false;
+  const parts = s.split("+").map((p) => p.trim()).filter(Boolean);
+  if (parts.length < 2) return false;
+  const key = parts[parts.length - 1];
+  const mods = parts.slice(0, -1);
+  if (mods.length === 0) return false;
+  if (!mods.every((m) => ACCEL_MODIFIERS.has(m))) return false;
+  /** Yalnızca Shift yeterli değil: normal yazmayı ele geçirir. */
+  if (mods.every((m) => m === "Shift")) return false;
+  if (ACCEL_MODIFIERS.has(key)) return false;
+  return /^([A-Za-z0-9]|F([1-9]|1[0-9]|2[0-4])|Space|Return|Tab|Backspace|Delete|Insert|Home|End|PageUp|PageDown|Up|Down|Left|Right|[`~!@#$%^&*()\-_=+[\]{};:'",.<>/?\\|])$/.test(key);
+}
 
 async function openSettingsStore(userDataPath) {
   const initSqlJs = require("sql.js");
@@ -189,6 +212,10 @@ async function openSettingsStore(userDataPath) {
       return String(raw ?? "")
         .trim()
         .slice(0, 200);
+    }
+    if (k === "globalShortcut") {
+      const v = String(raw ?? "").trim();
+      return isValidAccelerator(v) ? v : DEFAULTS.globalShortcut;
     }
     if (k === "lastRunVersion") {
       return String(raw ?? "")

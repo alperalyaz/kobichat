@@ -3367,3 +3367,34 @@ html[data-theme="light"] .qm-row__send:hover:not(:disabled) {
   outline: none;
   border-color: var(--accent);
 }
+
+/* Genel kısayol ayarı */
+.shortcut-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.shortcut-input {
+  flex: 1;
+  cursor: pointer;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-align: center;
+}
+
+.shortcut-input:focus {
+  border-color: var(--accent);
+  background: #fff7ed;
+}
+
+.shortcut-row .btn {
+  white-space: nowrap;
+  padding: 6px 12px;
+  font-size: 0.82rem;
+}
+
+.field-hint--warn {
+  color: #dc2626;
+  margin-top: 6px;
+}

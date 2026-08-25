@@ -23,6 +23,54 @@ import {
   setSoundPrefs
 } from "./sounds.js";
 
+/** Kişi listesini öne getiren genel kısayolun varsayılanı (Electron accelerator). */
+const DEFAULT_GLOBAL_SHORTCUT = "CommandOrControl+Shift+K";
+
+/**
+ * Klavye olayını Electron accelerator biçimine çevirir ("CommandOrControl+Shift+K").
+ * Değiştirici tuş içermeyen ya da yalnızca Shift'li kombinasyonlar reddedilir:
+ * genel kısayol oldukları için normal yazmayı ele geçirirlerdi.
+ * Harf/rakam tespitinde `e.code` kullanılır; böylece klavye düzeninden bağımsızdır.
+ */
+function acceleratorFromKeyEvent(e) {
+  const mods = [];
+  if (e.ctrlKey || e.metaKey) mods.push("CommandOrControl");
+  if (e.altKey) mods.push("Alt");
+  if (e.shiftKey) mods.push("Shift");
+  const code = String(e.code || "");
+  let key = "";
+  if (/^Key[A-Z]$/.test(code)) key = code.slice(3);
+  else if (/^Digit[0-9]$/.test(code)) key = code.slice(5);
+  else if (/^Numpad[0-9]$/.test(code)) key = code.slice(6);
+  else if (/^F([1-9]|1[0-9]|2[0-4])$/.test(code)) key = code;
+  else if (code === "Space") key = "Space";
+  else if (code === "Enter") key = "Return";
+  else if (code === "Tab") key = "Tab";
+  else if (code === "Backslash") key = "\\";
+  else if (code === "Slash") key = "/";
+  else if (code === "Period") key = ".";
+  else if (code === "Comma") key = ",";
+  else if (code === "Minus") key = "-";
+  else if (code === "Equal") key = "=";
+  else if (code === "BracketLeft") key = "[";
+  else if (code === "BracketRight") key = "]";
+  else if (code === "Semicolon") key = ";";
+  else if (code === "Quote") key = "'";
+  else if (code === "Backquote") key = "`";
+  if (!key) return "";
+  if (mods.length === 0) return "";
+  if (mods.every((m) => m === "Shift")) return "";
+  return [...mods, key].join("+");
+}
+
+/** Accelerator'ı okunabilir biçimde göster: "CommandOrControl+Shift+K" → "Ctrl + Shift + K" */
+function prettyAccelerator(accel) {
+  return String(accel || "")
+    .split("+")
+    .map((p) => (p === "CommandOrControl" || p === "Control" ? "Ctrl" : p === "Super" || p === "Meta" ? "Win" : p))
+    .join(" + ");
+}
+
 function normalizeBase(url) {
   return String(url || "").replace(/\/+$/, "");
 }
@@ -423,6 +471,9 @@ function RosterApp({ settingsOnly = false }) {
   const [settingsPresenceStatus, setSettingsPresenceStatus] = useState("uygun");
   const [settingsLang, setSettingsLang] = useState(() => normalizeLang(lang));
   const [settingsTheme, setSettingsTheme] = useState(() => getStoredTheme());
+  /** Genel kısayol (taslak) + son kayıt denemesinin sonucu. */
+  const [settingsShortcut, setSettingsShortcut] = useState(DEFAULT_GLOBAL_SHORTCUT);
+  const [shortcutOk, setShortcutOk] = useState(true);
   const [unreadPeerIds, setUnreadPeerIds] = useState([]);
   const [rosterDropPeerKey, setRosterDropPeerKey] = useState("");
   /**
@@ -589,6 +640,7 @@ function RosterApp({ settingsOnly = false }) {
       setRemotePort(Number(cfg.remotePort) || 3847);
       setLocalPort(Number(cfg.localPort) || 3847);
       if (cfg.presenceStatus) setPresenceStatus(cfg.presenceStatus);
+      if (typeof cfg.globalShortcutOk === "boolean") setShortcutOk(cfg.globalShortcutOk);
       setNotificationSoundEnabled(cfg.notificationSound !== false);
       applySoundCategoriesFromSource(cfg);
       applySoundVolumeFromSource(cfg);
@@ -1775,6 +1827,7 @@ function RosterApp({ settingsOnly = false }) {
         remoteHost: s.remoteHost ?? "",
         remotePort: Number(s.remotePort) || 3847,
         localPort: Number(s.localPort) || 3847,
+        globalShortcut: String(s.globalShortcut || "").trim() || DEFAULT_GLOBAL_SHORTCUT,
         socketUrl: ""
       };
       settingsLastSavedRef.current = loadedDraft;
@@ -1788,6 +1841,7 @@ function RosterApp({ settingsOnly = false }) {
       setSettingsPresenceStatus(loadedDraft.presenceStatus);
       setSettingsLang(loadedDraft.language);
       setSettingsTheme(loadedDraft.theme);
+      setSettingsShortcut(loadedDraft.globalShortcut);
       setSettingsNotificationSound(loadedDraft.notificationSound);
       setSettingsSoundCategories(loadedDraft.soundCategories);
       setSettingsSoundVolume(loadedDraft.soundVolume);
@@ -1805,6 +1859,7 @@ function RosterApp({ settingsOnly = false }) {
         remoteHost,
         remotePort: Number(remotePort) || 3847,
         localPort: Number(localPort) || 3847,
+        globalShortcut: settingsShortcut || DEFAULT_GLOBAL_SHORTCUT,
         socketUrl: normalizeBase(baseUrl)
       };
       settingsLastSavedRef.current = loadedDraft;
@@ -1840,6 +1895,7 @@ function RosterApp({ settingsOnly = false }) {
       remoteHost: String(remoteHost || "").trim(),
       remotePort: Number(remotePort) || 3847,
       localPort: Number(localPort) || 3847,
+      globalShortcut: settingsShortcut || DEFAULT_GLOBAL_SHORTCUT,
       socketUrl:
         normalizeBase(settingsSocketUrl || "") ||
         normalizeBase(baseUrl) ||
@@ -1858,6 +1914,7 @@ function RosterApp({ settingsOnly = false }) {
       remoteHost,
       remotePort,
       localPort,
+      settingsShortcut,
       settingsSocketUrl,
       baseUrl,
       t
@@ -1886,6 +1943,7 @@ function RosterApp({ settingsOnly = false }) {
       a.remoteHost === b.remoteHost &&
       a.remotePort === b.remotePort &&
       a.localPort === b.localPort &&
+      a.globalShortcut === b.globalShortcut &&
       a.socketUrl === b.socketUrl
     );
   };
@@ -1938,7 +1996,8 @@ function RosterApp({ settingsOnly = false }) {
             serverMode: draft.serverMode,
             remoteHost: draft.remoteHost,
             remotePort: draft.remotePort,
-            localPort: draft.localPort
+            localPort: draft.localPort,
+            globalShortcut: draft.globalShortcut
           });
           setLang(draft.language);
           setTheme(draft.theme);
@@ -2554,6 +2613,45 @@ function RosterApp({ settingsOnly = false }) {
                         </div>
                       </div>
                     ) : null}
+                  </div>
+                ) : null}
+
+                {window.kobiChat ? (
+                  <div className="settings-card">
+                    <span className="settings-section-label">{t("shortcutSection")}</span>
+                    <div className="field field--text-input">
+                      <label htmlFor="globalShortcut">
+                        {t("shortcutLabel")}
+                        <span className="field-hint"> {t("shortcutHint")}</span>
+                      </label>
+                      <div className="shortcut-row">
+                        <input
+                          id="globalShortcut"
+                          type="text"
+                          className="shortcut-input"
+                          readOnly
+                          value={prettyAccelerator(settingsShortcut)}
+                          placeholder={t("shortcutPlaceholder")}
+                          onKeyDown={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            const accel = acceleratorFromKeyEvent(e);
+                            if (accel) setSettingsShortcut(accel);
+                          }}
+                        />
+                        <button
+                          type="button"
+                          className="btn"
+                          onClick={() => setSettingsShortcut(DEFAULT_GLOBAL_SHORTCUT)}
+                          disabled={settingsShortcut === DEFAULT_GLOBAL_SHORTCUT}
+                        >
+                          {t("shortcutReset")}
+                        </button>
+                      </div>
+                      {!shortcutOk ? (
+                        <div className="field-hint field-hint--warn">{t("shortcutConflict")}</div>
+                      ) : null}
+                    </div>
                   </div>
                 ) : null}
 

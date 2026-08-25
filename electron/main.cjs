@@ -22,6 +22,9 @@ const {
 const { createChatServer, DEFAULT_PORT } = require("../server/chat-server.cjs");
 const { openSettingsStore } = require("./settings-store.cjs");
 
+/** Kişi listesini öne getiren genel kısayolun varsayılanı. */
+const DEFAULT_GLOBAL_SHORTCUT = "CommandOrControl+Shift+K";
+
 /**
  * Chromium'un autoplay politikasını devre dışı bırak; bu sayede tray'e
  * küçültülmüş veya arka plandaki bir pencere bile Audio API ile ses çalabilir.
@@ -399,6 +402,9 @@ function buildConfig() {
     soundCategories: s.soundCategories || { message: true, file: true, system: true, presence: false },
     soundVolume: typeof s.soundVolume === "number" ? s.soundVolume : 1,
     profileImage: s.profileImage || "",
+    /** Kişi listesini öne getiren genel kısayol + son kayıt denemesinin sonucu. */
+    globalShortcut: s.globalShortcut || DEFAULT_GLOBAL_SHORTCUT,
+    globalShortcutOk,
     hostname: os.hostname()
   };
 }
@@ -859,6 +865,39 @@ function startSystemIdleWatcher() {
       mainWindow.webContents.send("kobichat:system-idle", { idle, idleSeconds });
     }
   }, 5000);
+}
+
+/** Son kayıt denemesinin sonucu — ayarlar penceresi çakışmayı bildirebilsin diye. */
+let globalShortcutOk = true;
+
+/**
+ * Genel kısayolu ayarlardan (yeniden) kaydeder. Kullanıcının seçtiği kombinasyon
+ * başka bir uygulama tarafından tutuluyorsa `register` false döner; bu durumda
+ * kullanıcı kısayolsuz kalmasın diye varsayılana geri düşülür ve sonuç
+ * `globalShortcutOk` ile arayüze bildirilir.
+ */
+function applyGlobalShortcut() {
+  try {
+    globalShortcut.unregisterAll();
+  } catch {
+    // ignored
+  }
+  const desired =
+    String(settingsStore?.getAll?.().globalShortcut || "").trim() || DEFAULT_GLOBAL_SHORTCUT;
+  const tryRegister = (accel) => {
+    try {
+      return globalShortcut.register(accel, () => showRosterWindow());
+    } catch (e) {
+      console.error("Kısayol kaydı:", accel, e?.message || e);
+      return false;
+    }
+  };
+  let ok = tryRegister(desired);
+  if (!ok && desired !== DEFAULT_GLOBAL_SHORTCUT) {
+    tryRegister(DEFAULT_GLOBAL_SHORTCUT);
+  }
+  globalShortcutOk = ok;
+  return ok;
 }
 
 function stopChatServer() {
@@ -1746,13 +1785,7 @@ if (!app.requestSingleInstanceLock()) {
     createTray();
     startSystemIdleWatcher();
 
-    try {
-      globalShortcut.register("CommandOrControl+Shift+K", () => {
-        showRosterWindow();
-      });
-    } catch (e) {
-      console.error("Kısayol kaydı:", e);
-    }
+    applyGlobalShortcut();
 
     ipcMain.handle("kobichat:hide-main-window", () => {
       if (mainWindow && !mainWindow.isDestroyed()) {
@@ -1811,6 +1844,9 @@ if (!app.requestSingleInstanceLock()) {
         Number(before.localPort || 0) !== Number(after.localPort || 0);
       if (serverRuntimeChanged) {
         await applyServerMode();
+      }
+      if (String(before.globalShortcut || "") !== String(after.globalShortcut || "")) {
+        applyGlobalShortcut();
       }
       refreshTrayMenu();
       broadcastConfig();
