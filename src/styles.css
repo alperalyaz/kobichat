@@ -3463,3 +3463,20 @@ html[data-theme="light"] .qm-row__send:hover:not(:disabled) {
   font-weight: 600;
   z-index: 1;
 }
+
+/* Önizleme modalında indirme butonu (kapatma butonunun solunda) */
+.preview-download-btn {
+  position: absolute;
+  top: -10px;
+  right: 28px;
+  z-index: 2;
+  padding: 4px 14px;
+  font-size: 0.82rem;
+  border-radius: 999px;
+  background: var(--panel);
+  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.18);
+}
+
+.preview-download-btn:hover {
+  border-color: var(--accent);
+}

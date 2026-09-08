@@ -673,7 +673,10 @@ function ChatMessageBubble({
                           onImagePreview?.({
                             url: filePublicUrl(m.file_rel),
                             title: displayFileName || t("fileFallback"),
-                            mime: m.file_mime || ""
+                            mime: m.file_mime || "",
+                            fileRel: m.file_rel || "",
+                            messageId: m.id,
+                            fileSize: m.file_size
                           });
                           return;
                         }
@@ -705,7 +708,10 @@ function ChatMessageBubble({
                       onImagePreview?.({
                         url: filePublicUrl(m.file_rel),
                         title: displayFileName || t("imageAlt"),
-                        mime: m.file_mime || ""
+                        mime: m.file_mime || "",
+                        fileRel: m.file_rel || "",
+                        messageId: m.id,
+                        fileSize: m.file_size
                       })
                     }
                   />
@@ -2992,6 +2998,23 @@ export default function ChatApp() {
             aria-label={attachmentPreview.title || t("imageAlt")}
             onClick={(e) => e.stopPropagation()}
           >
+            <button
+              type="button"
+              className="btn preview-download-btn"
+              onClick={() =>
+                onDownloadAttachment({
+                  messageId: attachmentPreview.messageId,
+                  fileSize: attachmentPreview.fileSize,
+                  url: attachmentPreview.url,
+                  filename: attachmentPreview.title || t("fileFallback"),
+                  mime: attachmentPreview.mime || "",
+                  fileRel: attachmentPreview.fileRel || "",
+                  openAfter: false
+                })
+              }
+            >
+              {t("download")}
+            </button>
             <button
               type="button"
               className="chat-avatar-zoom-close"
