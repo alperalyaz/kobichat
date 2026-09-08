@@ -99,6 +99,103 @@ function isInlinePreviewableMime(m) {
   return false;
 }
 
+/** Metin tabanlı önizleme (iframe yerine içeriği kendimiz çiziyoruz). */
+function isTextPreviewMime(m) {
+  if (typeof m !== "string") return false;
+  const mime = m.toLowerCase();
+  return mime === "text/plain" || mime === "text/csv" || mime === "text/markdown";
+}
+
+/** Önizlemede okunacak en fazla bayt ve CSV'de gösterilecek en fazla satır. */
+const TEXT_PREVIEW_MAX_BYTES = 1000000;
+const CSV_PREVIEW_MAX_ROWS = 500;
+
+/**
+ * Baytları metne çevirir. UTF-8 BOM temizlenir; dosya geçerli UTF-8 değilse
+ * windows-1254'e düşülür (Excel'in ürettiği Türkçe CSV'ler çoğunlukla böyledir,
+ * aksi halde ş/ğ/İ gibi harfler bozuk görünürdü).
+ */
+function decodeTextBytes(buffer) {
+  const bytes = new Uint8Array(buffer);
+  if (bytes.length >= 3 && bytes[0] === 0xef && bytes[1] === 0xbb && bytes[2] === 0xbf) {
+    return new TextDecoder("utf-8").decode(bytes.subarray(3));
+  }
+  try {
+    return new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+  } catch {
+    try {
+      return new TextDecoder("windows-1254").decode(bytes);
+    } catch {
+      return new TextDecoder("utf-8").decode(bytes);
+    }
+  }
+}
+
+/** Ayiriciyi ilk satira bakarak tahmin eder (Turkce Excel ';' kullanir). */
+function sniffCsvDelimiter(text) {
+  const nl = text.indexOf("\n");
+  const first = nl >= 0 ? text.slice(0, nl) : text;
+  let best = ",";
+  let bestCount = 0;
+  for (const d of [";", ",", "\t", "|"]) {
+    const c = first.split(d).length - 1;
+    if (c > bestCount) {
+      best = d;
+      bestCount = c;
+    }
+  }
+  return best;
+}
+
+/** Tirnakli alanlari ve alan ici ayirici/satir sonlarini dogru isleyen CSV cozumleyici. */
+function parseCsv(text, maxRows) {
+  const delim = sniffCsvDelimiter(text);
+  const rows = [];
+  let row = [];
+  let field = "";
+  let inQuotes = false;
+  for (let i = 0; i < text.length; i += 1) {
+    const c = text[i];
+    if (inQuotes) {
+      if (c === '"') {
+        if (text[i + 1] === '"') {
+          field += '"';
+          i += 1;
+        } else {
+          inQuotes = false;
+        }
+      } else {
+        field += c;
+      }
+      continue;
+    }
+    if (c === '"') {
+      inQuotes = true;
+      continue;
+    }
+    if (c === delim) {
+      row.push(field);
+      field = "";
+      continue;
+    }
+    if (c === "\n") {
+      row.push(field);
+      field = "";
+      rows.push(row);
+      row = [];
+      if (rows.length >= maxRows) return rows;
+      continue;
+    }
+    if (c === "\r") continue;
+    field += c;
+  }
+  if (field.length > 0 || row.length > 0) {
+    row.push(field);
+    rows.push(row);
+  }
+  return rows;
+}
+
 function formatFileSize(bytes) {
   if (typeof bytes !== "number" || !Number.isFinite(bytes) || bytes < 0) return "—";
   if (bytes < 1024) return `${bytes} B`;
@@ -693,6 +790,13 @@ export default function ChatApp() {
   const [peerTyping, setPeerTyping] = useState(false);
   const [profileZoomOpen, setProfileZoomOpen] = useState(false);
   const [attachmentPreview, setAttachmentPreview] = useState(null);
+  /**
+   * Metin/CSV önizlemesinin içeriği. Bu türleri iframe ile göstermek işe
+   * yaramıyor: Chromium `text/csv` ve `text/markdown` yanıtlarını satır içi
+   * çizmez, indirilecek dosya sayar ve çerçeve bomboş kalır. Bu yüzden
+   * içeriği kendimiz indirip çiziyoruz (CSV → tablo, diğerleri → düz metin).
+   */
+  const [textPreview, setTextPreview] = useState({ state: "idle", rows: null, text: "", truncated: false });
   /** Electron: indirilen dosyanın tam yolu (mesaj id → path) */
   const [localDownloadByMessageId, setLocalDownloadByMessageId] = useState({});
   /** Electron: aktif indirme ilerlemesi (mesaj id → { received, total }) */
@@ -1805,6 +1909,49 @@ export default function ChatApp() {
     return (rel) => `${fileBase}/files/${encodeURIComponent(rel)}`;
   }, [activeSocketUrl, baseUrl]);
 
+  /**
+   * Metin/CSV önizlemesi açıldığında içeriği indirip çözümler. Büyük dosyaları
+   * tümüyle çekmemek için Range ile ilk parça istenir; sunucu Range'i
+   * desteklemezse yanıt yine de burada kırpılır.
+   */
+  useEffect(() => {
+    const url = attachmentPreview?.url || "";
+    const mime = attachmentPreview?.mime || "";
+    if (!url || !isTextPreviewMime(mime)) {
+      setTextPreview({ state: "idle", rows: null, text: "", truncated: false });
+      return undefined;
+    }
+    let cancelled = false;
+    setTextPreview({ state: "loading", rows: null, text: "", truncated: false });
+    (async () => {
+      try {
+        const res = await fetch(url, { headers: { Range: `bytes=0-${TEXT_PREVIEW_MAX_BYTES - 1}` } });
+        if (!res.ok && res.status !== 206) throw new Error(`HTTP ${res.status}`);
+        const buf = await res.arrayBuffer();
+        if (cancelled) return;
+        const sliced = buf.byteLength > TEXT_PREVIEW_MAX_BYTES ? buf.slice(0, TEXT_PREVIEW_MAX_BYTES) : buf;
+        const text = decodeTextBytes(sliced);
+        const byteTruncated = buf.byteLength >= TEXT_PREVIEW_MAX_BYTES;
+        if (mime.toLowerCase() === "text/csv") {
+          const rows = parseCsv(text, CSV_PREVIEW_MAX_ROWS);
+          setTextPreview({
+            state: "ready",
+            rows,
+            text: "",
+            truncated: byteTruncated || rows.length >= CSV_PREVIEW_MAX_ROWS
+          });
+        } else {
+          setTextPreview({ state: "ready", rows: null, text, truncated: byteTruncated });
+        }
+      } catch {
+        if (!cancelled) setTextPreview({ state: "error", rows: null, text: "", truncated: false });
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [attachmentPreview?.url, attachmentPreview?.mime]);
+
   useEffect(() => {
     if (!canSend || !mySocketId) {
       const el = composerRef.current;
@@ -2859,6 +3006,40 @@ export default function ChatApp() {
                 src={attachmentPreview.url}
                 alt={attachmentPreview.title || t("imageAlt")}
               />
+            ) : isTextPreviewMime(attachmentPreview.mime) ? (
+              <div className="text-preview">
+                <div className="text-preview__title">{attachmentPreview.title || t("fileFallback")}</div>
+                {textPreview.state === "loading" ? (
+                  <div className="hint-banner">{t("previewLoading")}</div>
+                ) : textPreview.state === "error" ? (
+                  <div className="hint-banner">{t("previewError")}</div>
+                ) : (
+                  <>
+                    {textPreview.truncated ? (
+                      <div className="text-preview__note" role="note">
+                        {t("previewTruncated", { rows: CSV_PREVIEW_MAX_ROWS })}
+                      </div>
+                    ) : null}
+                    <div className="text-preview__body">
+                      {textPreview.rows ? (
+                        <table className="csv-table">
+                          <tbody>
+                            {textPreview.rows.map((row, ri) => (
+                              <tr key={ri} className={ri === 0 ? "csv-table__head" : ""}>
+                                {row.map((cell, ci) => (
+                                  <td key={ci}>{cell}</td>
+                                ))}
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      ) : (
+                        <pre className="text-preview__pre">{textPreview.text}</pre>
+                      )}
+                    </div>
+                  </>
+                )}
+              </div>
             ) : (
               <iframe
                 className="chat-attachment-preview-frame"
