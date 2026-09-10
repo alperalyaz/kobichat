@@ -965,10 +965,16 @@ function RosterApp({ settingsOnly = false }) {
         alert(t("uploadFailed"));
         return false;
       }
-      // "Dışarıda" (away) kullanıcıya dosya gönderilemez; yalnızca mesaj gider.
+      /**
+       * "Dışarıda" olana dosya göndermek artık ENGELLENMİYOR (bkz. ChatApp
+       * uploadFiles): sunucu dosyayı kuyruğa alıp kişi dönünce iletiyor.
+       * Yalnızca kullanıcı bilerek göndersin diye onay isteniyor.
+       */
       if (peer.online !== false && String(peer.status || "").toLowerCase() === "away") {
-        alert(t("fileBlockedPeerAway", { name: String(peer.displayName || "").trim() || t("defaultUserName") }));
-        return false;
+        const proceed = window.confirm(
+          t("fileAwayConfirm", { name: String(peer.displayName || "").trim() || t("defaultUserName") })
+        );
+        if (!proceed) return false;
       }
       const uploadBase = activeSocketBaseFromRef(socketRef, baseUrl);
       if (!uploadBase) {

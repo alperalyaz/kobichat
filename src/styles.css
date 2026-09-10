@@ -3480,3 +3480,12 @@ html[data-theme="light"] .qm-row__send:hover:not(:disabled) {
 .preview-download-btn:hover {
   border-color: var(--accent);
 }
+
+/* Resim onayında "karşı taraf dışarıda" bilgilendirmesi (engel değil, uyarı) */
+.image-upload-confirm-note--away {
+  color: #b45309;
+  background: #fff7ed;
+  border: 1px solid #fed7aa;
+  border-radius: 8px;
+  padding: 8px 10px;
+}

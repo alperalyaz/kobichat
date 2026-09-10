@@ -2454,13 +2454,24 @@ export default function ChatApp() {
     return () => document.removeEventListener("keydown", onKeyDown, true);
   }, [canSend, mySocketId, sendTextContent]);
 
-  const uploadFiles = async (files, caption = "") => {
+  const uploadFiles = async (files, caption = "", skipAwayConfirm = false) => {
     const list = Array.from(files || []).filter(Boolean);
     if (!list.length || !canSend || !mySocketId) return;
-    if (peerIsAway) {
-      playSound("error");
-      alert(t("fileBlockedPeerAway", { name: peerName || t("defaultUserName") }));
-      return;
+    /**
+     * Karşı taraf "dışarıda" iken dosya göndermek ESKİDEN engelleniyordu.
+     * Bu yanlıştı: sunucu dosyayı zaten kuyruğa alıp kişi dönünce iletiyor ve
+     * tamamen ÇEVRİMDIŞI birine dosya göndermek serbestti — masasından yeni
+     * kalkmış birine engel koymak tutarsızdı. Üstelik otomatik "dışarıda"
+     * (5 dk hareketsizlik) çok sık görülen bir durum. Artık engellemiyoruz;
+     * yalnızca kullanıcı onaylasın diye bilgilendiriyoruz. Resimlerde bu
+     * uyarı önizleme penceresinde ÖNCEDEN gösterildiği için burada tekrar
+     * sorulmaz (emek verilip yazılan alt yazı boşa gitmesin).
+     */
+    if (peerIsAway && !skipAwayConfirm) {
+      const proceed = window.confirm(
+        t("fileAwayConfirm", { name: peerName || t("defaultUserName") })
+      );
+      if (!proceed) return;
     }
     const uploadBase = normalizeBase(activeSocketUrl || baseUrl);
     if (!uploadBase) {
@@ -2576,7 +2587,7 @@ export default function ChatApp() {
     /** Alt yazı resimle gitti → composer'ı temizle. */
     setDraft("");
     if (composerRef.current) composerRef.current.innerHTML = "";
-    await uploadFiles(files, caption);
+    await uploadFiles(files, caption, true);
   };
 
   const onPaste = async (e) => {
@@ -2942,6 +2953,11 @@ export default function ChatApp() {
             {pendingImageUpload.files.length > 1 ? (
               <p className="image-upload-confirm-note">
                 {t("imageUploadConfirmMultiple", { count: pendingImageUpload.files.length })}
+              </p>
+            ) : null}
+            {peerIsAway ? (
+              <p className="image-upload-confirm-note image-upload-confirm-note--away" role="note">
+                {t("fileAwayNotice", { name: peerName || t("defaultUserName") })}
               </p>
             ) : null}
             <textarea
