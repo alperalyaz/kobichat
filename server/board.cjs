@@ -235,8 +235,37 @@ function attachBoard({ db, saveDb, io }) {
     }
   }
 
+  /**
+   * Bugün gösterilen zamanlı bildirimler (id|saat). Veritabanında da tutulur ki
+   * sunucu aynı dakika içinde yeniden başlarsa bildirim ikinci kez çıkmasın.
+   */
   const fired = new Set();
   let firedDay = "";
+  try {
+    const stmt = db.prepare("SELECT value_json FROM board_kv WHERE key = 'fired'");
+    if (stmt.step()) {
+      const v = JSON.parse(String(stmt.getAsObject().value_json));
+      firedDay = String(v?.day || "");
+      for (const k of Array.isArray(v?.keys) ? v.keys : []) fired.add(String(k));
+    }
+    stmt.free();
+  } catch {
+    // ignored
+  }
+
+  function persistFired() {
+    db.run(
+      `INSERT INTO board_kv (key, value_json, updated_at) VALUES ('fired', ?, ?)
+       ON CONFLICT(key) DO UPDATE SET value_json = excluded.value_json, updated_at = excluded.updated_at`,
+      [JSON.stringify({ day: firedDay, keys: [...fired] }), new Date().toISOString()]
+    );
+    try {
+      saveDb();
+    } catch (e) {
+      console.error("saveDb (board fired):", e);
+    }
+  }
+
   function tickSchedules() {
     const now = new Date();
     const day = `${now.getFullYear()}-${pad2(now.getMonth() + 1)}-${pad2(now.getDate())}`;
@@ -245,6 +274,7 @@ function attachBoard({ db, saveDb, io }) {
       fired.clear();
       firedDay = day;
     }
+    let changed = false;
     for (const s of state.schedules) {
       if (!s.enabled || s.time !== hm) continue;
       const matches = s.date ? s.date === day : s.days.includes(now.getDay());
@@ -252,8 +282,10 @@ function attachBoard({ db, saveDb, io }) {
       const key = `${s.id}|${hm}`;
       if (fired.has(key)) continue;
       fired.add(key);
+      changed = true;
       io.emit("board:notify", { id: s.id, kind: s.kind, title: s.title, body: s.body });
     }
+    if (changed) persistFired();
   }
 
   let ratesTimer = null;
