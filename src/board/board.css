@@ -27,20 +27,22 @@
 
 .bd-header__when {
   display: flex;
-  align-items: baseline;
-  gap: 12px;
+  flex-direction: column;
+  gap: 2px;
   min-width: 0;
 }
 
 .bd-header__time {
-  font-size: 26px;
+  font-size: 24px;
   font-weight: 700;
+  line-height: 1.1;
+  white-space: nowrap;
   font-variant-numeric: tabular-nums;
 }
 
 .bd-header__date {
   color: var(--muted);
-  font-size: 15px;
+  font-size: 13px;
   text-transform: capitalize;
   white-space: nowrap;
   overflow: hidden;
@@ -50,7 +52,14 @@
 .bd-header__right {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.bd-header__right .btn {
+  white-space: nowrap;
+  padding: 7px 12px;
+  font-size: 13px;
 }
 
 .bd-offline {
@@ -594,55 +603,228 @@ textarea.bd-input {
   background: none;
 }
 
-/* Ana pencere: Kişiler | Pano sekmeleri (sade, küçük segment düğme) */
+/* Ana pencere: sustalı Pano çekmecesi */
 
-.main-tabs {
-  display: flex;
-  gap: 2px;
-  padding: 2px;
-  border-radius: 8px;
-  background: var(--surface);
-  flex-shrink: 0;
-  width: 100%;
-  max-width: 200px;
-  box-sizing: border-box;
-  align-self: center;
+.app-shell--roster {
+  padding-left: 6px;
 }
 
-.main-tabs__btn {
+.roster-row {
+  display: flex;
   flex: 1;
-  display: inline-flex;
+  min-height: 0;
+  gap: 6px;
+}
+
+.roster-row .main-layout {
+  min-width: 0;
+}
+
+.board-drawer {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  overflow: hidden;
+}
+
+/* Çekmece kayarken içerik yeniden dizilmesin; kırpılarak görünür. */
+.board-drawer .bd-shell {
+  min-width: 620px;
+}
+
+.board-drawer .bd-card {
+  animation: bd-rise 0.38s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+
+.board-drawer .bd-side .bd-card:nth-child(1) {
+  animation-delay: 0.06s;
+}
+
+.board-drawer .bd-side .bd-card:nth-child(2) {
+  animation-delay: 0.12s;
+}
+
+.board-drawer .bd-side .bd-card:nth-child(3) {
+  animation-delay: 0.18s;
+}
+
+@keyframes bd-rise {
+  from {
+    opacity: 0;
+    transform: translateX(-16px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.board-handle {
+  --bh-grad: linear-gradient(180deg, #0ea5e9 0%, #6366f1 55%, #8b5cf6 100%);
+  position: relative;
+  flex-shrink: 0;
+  width: 24px;
+  align-self: stretch;
+  display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 5px;
-  border: none;
-  border-radius: 6px;
-  background: transparent;
-  color: var(--muted);
-  padding: 3px 8px;
-  font: inherit;
-  font-size: 12px;
-  font-weight: 600;
-  line-height: 18px;
-  cursor: pointer;
-  transition: background 0.15s ease, color 0.15s ease;
-}
-
-.main-tabs__btn:hover:not(.is-active) {
-  color: var(--text);
-}
-
-.main-tabs__btn.is-active {
+  gap: 12px;
+  padding: 12px 0;
+  border: 1px solid var(--border);
+  border-radius: 12px;
   background: var(--bg-elevated);
-  color: var(--text);
-  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.14);
+  color: var(--muted);
+  font: inherit;
+  cursor: pointer;
+  overflow: hidden;
+  transition: color 0.2s ease, border-color 0.2s ease, box-shadow 0.25s ease, transform 0.2s ease;
 }
 
-.main-tabs__dot {
-  width: 6px;
-  height: 6px;
+.board-handle::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: var(--bh-grad);
+  opacity: 0;
+  transition: opacity 0.25s ease;
+}
+
+/* Hafif parıltı: fare üstündeyken şeritte aşağı doğru akan ışık. */
+.board-handle::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: -40%;
+  height: 40%;
+  background: linear-gradient(180deg, transparent, rgba(255, 255, 255, 0.35), transparent);
+  opacity: 0;
+  pointer-events: none;
+}
+
+.board-handle > * {
+  position: relative;
+  z-index: 1;
+}
+
+.board-handle:hover,
+.board-handle:focus-visible,
+.board-handle.is-open {
+  color: #fff;
+  border-color: transparent;
+  box-shadow: 0 6px 20px rgba(99, 102, 241, 0.35);
+}
+
+.board-handle:hover::before,
+.board-handle:focus-visible::before,
+.board-handle.is-open::before {
+  opacity: 1;
+}
+
+.board-handle:hover::after {
+  opacity: 1;
+  animation: bh-shine 1.4s ease-in-out infinite;
+}
+
+.board-handle:active {
+  transform: scale(0.97);
+}
+
+.board-handle:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+@keyframes bh-shine {
+  from {
+    top: -40%;
+  }
+  to {
+    top: 100%;
+  }
+}
+
+.board-handle__label {
+  writing-mode: vertical-rl;
+  transform: rotate(180deg);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+}
+
+.board-handle__chev {
+  font-size: 16px;
+  font-weight: 700;
+  line-height: 1;
+  transition: transform 0.3s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.board-handle:hover:not(.is-open) .board-handle__chev {
+  animation: bh-nudge 0.9s ease-in-out infinite;
+}
+
+.board-handle.is-open .board-handle__chev {
+  transform: rotate(180deg);
+}
+
+@keyframes bh-nudge {
+  0%,
+  100% {
+    transform: translateX(0);
+  }
+  50% {
+    transform: translateX(-3px);
+  }
+}
+
+.board-handle__grip {
+  width: 4px;
+  height: 14px;
+  border-radius: 2px;
+  background: currentColor;
+  opacity: 0.25;
+}
+
+.board-handle.has-news:not(:hover):not(:focus-visible) {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+.board-handle__dot {
+  position: absolute;
+  top: 7px;
+  left: 50%;
+  width: 8px;
+  height: 8px;
+  margin-left: -4px;
   border-radius: 50%;
   background: var(--danger);
+  animation: bh-pulse 1.6s ease-out infinite;
+}
+
+@keyframes bh-pulse {
+  0% {
+    box-shadow: 0 0 0 0 rgba(220, 38, 38, 0.55);
+  }
+  70% {
+    box-shadow: 0 0 0 7px rgba(220, 38, 38, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(220, 38, 38, 0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .board-handle,
+  .board-handle::after,
+  .board-handle__chev,
+  .board-handle__dot,
+  .board-drawer .bd-card {
+    animation: none !important;
+    transition: none !important;
+  }
 }
 
 /* Pano yüklenemedi / sunucu eski */

@@ -438,46 +438,73 @@ function positionMainWindowBottomRight() {
   }
 }
 
-/** Ana pencere: "roster" (dar kişi listesi, sağ alt köşe) veya "board" (Pano sekmesi, aynı köşeden genişler). */
+/**
+ * Ana pencere: "roster" (dar kişi listesi) veya "board" (Pano çekmecesi açık).
+ * Pano, sustalı bıçak gibi: liste yerinde kalır, pencere sağ kenarı sabit
+ * kalarak sola doğru kayarak genişler; kapanınca aynı yoldan geri katlanır.
+ */
 let mainWindowMode = "roster";
-/** @type {{ bounds: Electron.Rectangle, minSize: number[] } | null} */
+/** @type {{ width: number, minSize: number[] } | null} */
 let rosterStateBeforeBoard = null;
-const BOARD_TAB_SIZE = { width: 960, height: 640 };
+const BOARD_DRAWER_WIDTH = 700;
+const BOARD_DRAWER_MIN = 420;
+const DRAWER_ANIM_MS = 200;
+let drawerAnimTimer = null;
 
-function setMainWindowMode(mode) {
+function animateMainWindowBounds(to) {
+  return new Promise((resolve) => {
+    if (drawerAnimTimer) clearInterval(drawerAnimTimer);
+    const from = mainWindow.getBounds();
+    const startedAt = Date.now();
+    const step = () => {
+      if (!mainWindow || mainWindow.isDestroyed()) {
+        clearInterval(drawerAnimTimer);
+        drawerAnimTimer = null;
+        resolve();
+        return;
+      }
+      const k = Math.min(1, (Date.now() - startedAt) / DRAWER_ANIM_MS);
+      const e = 1 - Math.pow(1 - k, 3);
+      mainWindow.setBounds({
+        x: Math.round(from.x + (to.x - from.x) * e),
+        y: Math.round(from.y + (to.y - from.y) * e),
+        width: Math.round(from.width + (to.width - from.width) * e),
+        height: Math.round(from.height + (to.height - from.height) * e)
+      });
+      if (k >= 1) {
+        clearInterval(drawerAnimTimer);
+        drawerAnimTimer = null;
+        resolve();
+      }
+    };
+    drawerAnimTimer = setInterval(step, 12);
+    step();
+  });
+}
+
+async function setMainWindowMode(mode) {
   if (!mainWindow || mainWindow.isDestroyed()) return false;
   const next = mode === "board" ? "board" : "roster";
   if (next === mainWindowMode) return true;
   try {
+    if (mainWindow.isMaximized()) mainWindow.unmaximize();
+    const cur = mainWindow.getBounds();
+    const right = cur.x + cur.width;
     if (next === "board") {
-      const bounds = mainWindow.getBounds();
-      rosterStateBeforeBoard = { bounds, minSize: mainWindow.getMinimumSize() };
-      const wa = screen.getDisplayMatching(bounds).workArea;
-      const width = Math.min(BOARD_TAB_SIZE.width, wa.width);
-      const height = Math.min(BOARD_TAB_SIZE.height, wa.height);
       mainWindowMode = "board";
-      mainWindow.setMinimumSize(Math.min(720, width), Math.min(520, height));
-      /** Olduğu yerde büyüsün: sağ alt köşe sabit, sola ve yukarı açılır; ekran dışına taşmaz. */
-      const right = Math.min(bounds.x + bounds.width, wa.x + wa.width);
-      const bottom = Math.min(bounds.y + bounds.height, wa.y + wa.height);
-      mainWindow.setBounds({
-        x: Math.max(wa.x, right - width),
-        y: Math.max(wa.y, bottom - height),
-        width,
-        height
-      });
+      rosterStateBeforeBoard = { width: cur.width, minSize: mainWindow.getMinimumSize() };
+      const wa = screen.getDisplayMatching(cur).workArea;
+      const x = Math.max(wa.x, right - cur.width - BOARD_DRAWER_WIDTH);
+      await animateMainWindowBounds({ x, y: cur.y, width: right - x, height: cur.height });
+      const min = rosterStateBeforeBoard.minSize;
+      mainWindow.setMinimumSize(Math.min(right - x, min[0] + BOARD_DRAWER_MIN), min[1]);
     } else {
       mainWindowMode = "roster";
-      if (mainWindow.isMaximized()) mainWindow.unmaximize();
       const prev = rosterStateBeforeBoard;
       rosterStateBeforeBoard = null;
-      if (prev) {
-        mainWindow.setMinimumSize(prev.minSize[0], prev.minSize[1]);
-        mainWindow.setBounds(prev.bounds);
-      } else {
-        mainWindow.setContentSize(275, 520);
-        positionMainWindowBottomRight();
-      }
+      const width = prev ? prev.width : 275;
+      if (prev) mainWindow.setMinimumSize(prev.minSize[0], prev.minSize[1]);
+      await animateMainWindowBounds({ x: right - width, y: cur.y, width, height: cur.height });
     }
   } catch {
     return false;

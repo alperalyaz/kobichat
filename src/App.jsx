@@ -488,15 +488,31 @@ function RosterApp({ settingsOnly = false }) {
   const [bulkSending, setBulkSending] = useState(false);
   /** Pano notu/menüsü değişti, kullanıcı henüz panoyu açmadı. */
   const [boardUnseen, setBoardUnseen] = useState(false);
-  /** Ana pencere sekmesi: "people" (kişi listesi) | "board" (Pano; pencere genişler). */
-  const [mainTab, setMainTab] = useState("people");
+  /** Pano çekmecesi (sustalı): listenin solundan kayarak açılır. */
+  const [boardOpen, setBoardOpen] = useState(false);
+  /** Çekmece açıkken liste sütunu sabit genişlikte kalır; pano kalan alana yayılır. */
+  const [rosterColWidth, setRosterColWidth] = useState(0);
+  const rosterColRef = useRef(null);
+  const boardAnimatingRef = useRef(false);
 
-  const switchMainTab = useCallback((tab) => {
-    const next = tab === "board" ? "board" : "people";
-    setMainTab(next);
-    if (next === "board") setBoardUnseen(false);
-    void window.kobiChat?.setMainWindowMode?.(next === "board" ? "board" : "roster");
-  }, []);
+  const toggleBoard = useCallback(async () => {
+    if (boardAnimatingRef.current) return;
+    boardAnimatingRef.current = true;
+    try {
+      if (!boardOpen) {
+        const w = rosterColRef.current?.getBoundingClientRect().width || 0;
+        setRosterColWidth(window.kobiChat ? Math.round(w) : Math.min(Math.round(w), 300));
+        setBoardOpen(true);
+        setBoardUnseen(false);
+        await window.kobiChat?.setMainWindowMode?.("board");
+      } else {
+        await window.kobiChat?.setMainWindowMode?.("roster");
+        setBoardOpen(false);
+      }
+    } finally {
+      boardAnimatingRef.current = false;
+    }
+  }, [boardOpen]);
 
   useEffect(() => {
     /** Yeniden yüklemede pencere Pano boyutunda kalmasın. */
@@ -2135,6 +2151,12 @@ function RosterApp({ settingsOnly = false }) {
       if (e.key !== "Escape" || e.ctrlKey || e.altKey || e.metaKey || e.shiftKey) return;
       if (!document.hasFocus()) return;
       if (document.body.dataset.boardModal === "1") return;
+      if (boardOpen && !settingsOpen) {
+        e.preventDefault();
+        e.stopPropagation();
+        void toggleBoard();
+        return;
+      }
       if (settingsOpen) {
         e.preventDefault();
         e.stopPropagation();
@@ -2147,7 +2169,7 @@ function RosterApp({ settingsOnly = false }) {
     };
     document.addEventListener("keydown", onEscHideRoster, true);
     return () => document.removeEventListener("keydown", onEscHideRoster, true);
-  }, [settingsOpen, closeSettingsUi]);
+  }, [settingsOpen, closeSettingsUi, boardOpen, toggleBoard]);
 
   useEffect(() => {
     if (!settingsOnly) return;
@@ -2209,38 +2231,34 @@ function RosterApp({ settingsOnly = false }) {
   }, []);
 
   return (
-    <div className="app-shell">
+    <div className={`app-shell ${settingsOnly ? "" : "app-shell--roster"}`}>
       {!settingsOnly ? (
-        <nav className="main-tabs" role="tablist" aria-label={t("boardOpen")}>
+        <div className={`roster-row ${boardOpen ? "is-board-open" : ""}`}>
+          {boardOpen ? (
+            <div className="board-drawer">
+              <BoardPanel socketUrl={activeSocketBaseFromRef(socketRef, baseUrl)} />
+            </div>
+          ) : null}
           <button
             type="button"
-            role="tab"
-            aria-selected={mainTab === "people"}
-            className={`main-tabs__btn ${mainTab === "people" ? "is-active" : ""}`}
-            onClick={() => switchMainTab("people")}
+            className={`board-handle ${boardOpen ? "is-open" : ""} ${boardUnseen && !boardOpen ? "has-news" : ""}`}
+            onClick={() => void toggleBoard()}
+            aria-expanded={boardOpen}
+            title={boardOpen ? t("boardClose") : boardUnseen ? t("boardUpdated") : t("boardOpen")}
           >
-            {t("mainTabPeople")}
-            {mainTab !== "people" && unreadPeerIds.length > 0 ? <span className="main-tabs__dot" aria-hidden /> : null}
+            {boardUnseen && !boardOpen ? <span className="board-handle__dot" aria-hidden /> : null}
+            <span className="board-handle__grip" aria-hidden />
+            <span className="board-handle__label">{t("boardOpen")}</span>
+            <span className="board-handle__chev" aria-hidden>
+              ‹
+            </span>
+            <span className="board-handle__grip" aria-hidden />
           </button>
-          <button
-            type="button"
-            role="tab"
-            aria-selected={mainTab === "board"}
-            className={`main-tabs__btn ${mainTab === "board" ? "is-active" : ""}`}
-            onClick={() => switchMainTab("board")}
-          >
-            {t("boardOpen")}
-            {boardUnseen && mainTab !== "board" ? (
-              <span className="main-tabs__dot" aria-label={t("boardUpdated")} />
-            ) : null}
-          </button>
-        </nav>
-      ) : null}
-      {!settingsOnly && mainTab === "board" ? (
-        <BoardPanel socketUrl={activeSocketBaseFromRef(socketRef, baseUrl)} />
-      ) : null}
-      {!settingsOnly && mainTab === "people" ? (
-        <div className="main-layout main-layout--roster-only">
+        <div
+          ref={rosterColRef}
+          className="main-layout main-layout--roster-only"
+          style={boardOpen && rosterColWidth ? { flex: "none", width: rosterColWidth } : undefined}
+        >
           <aside className="sidebar-users" aria-label={t("sidebarAria")} onClick={onSidebarBlankClick}>
           <ul className="sidebar-users-list">
             {!connected ? (
@@ -2430,6 +2448,7 @@ function RosterApp({ settingsOnly = false }) {
             </div>
           </div>
           </aside>
+        </div>
         </div>
       ) : null}
 
