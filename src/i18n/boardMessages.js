@@ -1,6 +1,8 @@
 /** Pano (KobiTools'tan taşınan bilgi panosu) metinleri. Tüm dillerde aynı anahtarlar. */
 export const BOARD_MESSAGES = {
   tr: {
+    boardServerOutdatedTitle: "Sunucu Pano'yu henüz desteklemiyor",
+    boardServerOutdatedText: "Bağlı olduğunuz KobiChat sunucusu eski bir sürüm. Sunucu bilgisayarındaki KobiChat'i güncelleyip yeniden başlatın; Pano kendiliğinden açılacak.",
     boardEdit: "Düzenle",
     boardClose: "Kapat",
     boardDiscardConfirm: "Kaydedilmemiş değişiklikler silinsin mi?",
@@ -92,6 +94,8 @@ export const BOARD_MESSAGES = {
     boardShockTitle: "Şok bildirim",
   },
   en: {
+    boardServerOutdatedTitle: "The server does not support the Board yet",
+    boardServerOutdatedText: "The KobiChat server you are connected to is an older version. Update and restart KobiChat on the server computer; the Board will open by itself.",
     boardEdit: "Edit",
     boardClose: "Close",
     boardDiscardConfirm: "Discard unsaved changes?",
@@ -183,6 +187,8 @@ export const BOARD_MESSAGES = {
     boardShockTitle: "Shock alert",
   },
   de: {
+    boardServerOutdatedTitle: "Der Server unterstützt die Pinnwand noch nicht",
+    boardServerOutdatedText: "Der verbundene KobiChat-Server ist eine ältere Version. Aktualisieren Sie KobiChat auf dem Server-Computer und starten Sie es neu; die Pinnwand öffnet sich dann von selbst.",
     boardEdit: "Bearbeiten",
     boardClose: "Schließen",
     boardDiscardConfirm: "Ungespeicherte Änderungen verwerfen?",
@@ -274,6 +280,8 @@ export const BOARD_MESSAGES = {
     boardShockTitle: "Schockalarm",
   },
   fr: {
+    boardServerOutdatedTitle: "Le serveur ne prend pas encore en charge le tableau",
+    boardServerOutdatedText: "Le serveur KobiChat auquel vous êtes connecté est une ancienne version. Mettez à jour et redémarrez KobiChat sur l'ordinateur serveur ; le tableau s'ouvrira tout seul.",
     boardEdit: "Modifier",
     boardClose: "Fermer",
     boardDiscardConfirm: "Abandonner les modifications non enregistrées ?",
@@ -365,6 +373,8 @@ export const BOARD_MESSAGES = {
     boardShockTitle: "Alerte choc",
   },
   es: {
+    boardServerOutdatedTitle: "El servidor aún no admite el tablón",
+    boardServerOutdatedText: "El servidor de KobiChat al que está conectado es una versión antigua. Actualice y reinicie KobiChat en el equipo servidor; el tablón se abrirá solo.",
     boardEdit: "Editar",
     boardClose: "Cerrar",
     boardDiscardConfirm: "¿Descartar los cambios sin guardar?",

@@ -438,11 +438,11 @@ function positionMainWindowBottomRight() {
   }
 }
 
-/** Ana pencere: "roster" (dar kişi listesi, sağ alt köşe) veya "board" (Pano sekmesi, geniş, ortada). */
+/** Ana pencere: "roster" (dar kişi listesi, sağ alt köşe) veya "board" (Pano sekmesi, aynı köşeden genişler). */
 let mainWindowMode = "roster";
 /** @type {{ bounds: Electron.Rectangle, minSize: number[] } | null} */
 let rosterStateBeforeBoard = null;
-const BOARD_TAB_SIZE = { width: 1040, height: 700 };
+const BOARD_TAB_SIZE = { width: 960, height: 640 };
 
 function setMainWindowMode(mode) {
   if (!mainWindow || mainWindow.isDestroyed()) return false;
@@ -457,9 +457,12 @@ function setMainWindowMode(mode) {
       const height = Math.min(BOARD_TAB_SIZE.height, wa.height);
       mainWindowMode = "board";
       mainWindow.setMinimumSize(Math.min(720, width), Math.min(520, height));
+      /** Olduğu yerde büyüsün: sağ alt köşe sabit, sola ve yukarı açılır; ekran dışına taşmaz. */
+      const right = Math.min(bounds.x + bounds.width, wa.x + wa.width);
+      const bottom = Math.min(bounds.y + bounds.height, wa.y + wa.height);
       mainWindow.setBounds({
-        x: Math.round(wa.x + (wa.width - width) / 2),
-        y: Math.round(wa.y + (wa.height - height) / 2),
+        x: Math.max(wa.x, right - width),
+        y: Math.max(wa.y, bottom - height),
         width,
         height
       });

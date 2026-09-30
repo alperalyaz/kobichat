@@ -594,20 +594,19 @@ textarea.bd-input {
   background: none;
 }
 
-/* Ana pencere: Kişiler | Pano sekmeleri */
+/* Ana pencere: Kişiler | Pano sekmeleri (sade, küçük segment düğme) */
 
 .main-tabs {
   display: flex;
-  gap: 4px;
-  padding: 3px;
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  background: var(--bg-elevated);
+  gap: 2px;
+  padding: 2px;
+  border-radius: 8px;
+  background: var(--surface);
   flex-shrink: 0;
   width: 100%;
-  max-width: 260px;
+  max-width: 200px;
   box-sizing: border-box;
-  align-self: flex-start;
+  align-self: center;
 }
 
 .main-tabs__btn {
@@ -615,30 +614,59 @@ textarea.bd-input {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 6px;
+  gap: 5px;
   border: none;
-  border-radius: 7px;
+  border-radius: 6px;
   background: transparent;
-  color: var(--text);
-  padding: 6px 10px;
+  color: var(--muted);
+  padding: 3px 8px;
   font: inherit;
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 600;
+  line-height: 18px;
   cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
 }
 
 .main-tabs__btn:hover:not(.is-active) {
-  background: var(--surface);
+  color: var(--text);
 }
 
 .main-tabs__btn.is-active {
-  background: var(--accent);
-  color: #fff;
+  background: var(--bg-elevated);
+  color: var(--text);
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.14);
 }
 
 .main-tabs__dot {
-  width: 7px;
-  height: 7px;
+  width: 6px;
+  height: 6px;
   border-radius: 50%;
   background: var(--danger);
+}
+
+/* Pano yüklenemedi / sunucu eski */
+
+.bd-state {
+  max-width: 440px;
+  margin: 60px auto 0;
+  text-align: center;
+}
+
+.bd-state__icon {
+  font-family: var(--font-emoji);
+  font-size: 36px;
+  line-height: 1;
+}
+
+.bd-state__title {
+  margin: 12px 0 8px;
+  font-size: 17px;
+}
+
+.bd-state__text {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.55;
+  color: var(--muted);
 }

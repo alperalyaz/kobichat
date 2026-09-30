@@ -886,6 +886,8 @@ export default function BoardPanel({ socketUrl }) {
   const [editing, setEditing] = useState("");
   const [now, setNow] = useState(() => new Date());
   const [notice, setNotice] = useState("");
+  /** Bağlı sunucu board:get'e cevap vermiyor → Pano'suz (eski) sürüm. */
+  const [serverOutdated, setServerOutdated] = useState(false);
 
   useEffect(() => {
     const id = setInterval(() => setNow(new Date()), 20000);
@@ -908,12 +910,17 @@ export default function BoardPanel({ socketUrl }) {
       timeout: 20000
     });
     socketRef.current = s;
+    let outdatedTimer = null;
     s.on("connect", () => {
       setConnected(true);
       s.emit("board:get");
+      clearTimeout(outdatedTimer);
+      outdatedTimer = setTimeout(() => setServerOutdated(true), 6000);
     });
     s.on("disconnect", () => setConnected(false));
     s.on("board:state", (st) => {
+      clearTimeout(outdatedTimer);
+      setServerOutdated(false);
       const { canEdit: ce, ...rest } = st || {};
       setBoard(rest);
       setCanEdit(Boolean(ce));
@@ -924,6 +931,7 @@ export default function BoardPanel({ socketUrl }) {
       setBoard((prev) => (prev ? { ...prev, [p.key]: p.value } : prev));
     });
     return () => {
+      clearTimeout(outdatedTimer);
       s.close();
       socketRef.current = null;
     };
@@ -982,7 +990,17 @@ export default function BoardPanel({ socketUrl }) {
       {notice ? <div className="bd-notice">{notice}</div> : null}
       <main className="bd-main">
         {!board ? (
-          <p className="bd-empty bd-empty--center">{connected ? t("boardLoading") : t("boardOffline")}</p>
+          serverOutdated && connected ? (
+            <div className="bd-state">
+              <div className="bd-state__icon" aria-hidden>
+                🔄
+              </div>
+              <h2 className="bd-state__title">{t("boardServerOutdatedTitle")}</h2>
+              <p className="bd-state__text">{t("boardServerOutdatedText")}</p>
+            </div>
+          ) : (
+            <p className="bd-empty bd-empty--center">{connected ? t("boardLoading") : t("boardOffline")}</p>
+          )
         ) : (
           <BoardView t={t} locale={locale} board={board} canEdit={canEdit} onNotice={setNotice} onEdit={setEditing} />
         )}
