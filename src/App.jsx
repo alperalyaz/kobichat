@@ -13,7 +13,7 @@ import { detectBrowserLang, normalizeLang, useI18n } from "./i18n/I18nContext.js
 import { LanguageSelectWithFlags } from "./i18n/LanguageSelect.jsx";
 import ChatApp from "./ChatApp.jsx";
 import QuickMessagesApp from "./QuickMessagesApp.jsx";
-import BoardApp from "./board/BoardApp.jsx";
+import BoardPanel from "./board/BoardPanel.jsx";
 import { schedKind } from "./board/kinds.js";
 import { KOBI_BRIDGE } from "./socketBridge.js";
 import { useAppVersion } from "./useAppVersion.js";
@@ -488,6 +488,20 @@ function RosterApp({ settingsOnly = false }) {
   const [bulkSending, setBulkSending] = useState(false);
   /** Pano notu/menüsü değişti, kullanıcı henüz panoyu açmadı. */
   const [boardUnseen, setBoardUnseen] = useState(false);
+  /** Ana pencere sekmesi: "people" (kişi listesi) | "board" (Pano; pencere genişler). */
+  const [mainTab, setMainTab] = useState("people");
+
+  const switchMainTab = useCallback((tab) => {
+    const next = tab === "board" ? "board" : "people";
+    setMainTab(next);
+    if (next === "board") setBoardUnseen(false);
+    void window.kobiChat?.setMainWindowMode?.(next === "board" ? "board" : "roster");
+  }, []);
+
+  useEffect(() => {
+    /** Yeniden yüklemede pencere Pano boyutunda kalmasın. */
+    if (!settingsOnly) void window.kobiChat?.setMainWindowMode?.("roster");
+  }, [settingsOnly]);
 
   useEffect(() => {
     if (!settingsOnly) return;
@@ -2196,30 +2210,37 @@ function RosterApp({ settingsOnly = false }) {
   return (
     <div className="app-shell">
       {!settingsOnly ? (
-        <div className="main-layout main-layout--roster-only">
-          <aside className="sidebar-users" aria-label={t("sidebarAria")} onClick={onSidebarBlankClick}>
+        <nav className="main-tabs" role="tablist" aria-label={t("boardOpen")}>
           <button
             type="button"
-            className="roster-board-btn"
-            onClick={(e) => {
-              e.stopPropagation();
-              setBoardUnseen(false);
-              const socketUrl = activeSocketBaseFromRef(socketRef, baseUrl);
-              if (window.kobiChat?.openBoardWindow) {
-                void window.kobiChat.openBoardWindow({ socketUrl });
-              } else {
-                const q = new URLSearchParams({ mode: "board", socketUrl });
-                window.open(`?${q.toString()}`, "_blank", "noopener");
-              }
-            }}
-            title={t("boardOpen")}
+            role="tab"
+            aria-selected={mainTab === "people"}
+            className={`main-tabs__btn ${mainTab === "people" ? "is-active" : ""}`}
+            onClick={() => switchMainTab("people")}
           >
-            <span className="roster-board-btn__icon" aria-hidden>
-              📋
-            </span>
-            {t("boardOpen")}
-            {boardUnseen ? <span className="roster-board-btn__dot" aria-label={t("boardUpdated")} /> : null}
+            {t("mainTabPeople")}
+            {mainTab !== "people" && unreadPeerIds.length > 0 ? <span className="main-tabs__dot" aria-hidden /> : null}
           </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={mainTab === "board"}
+            className={`main-tabs__btn ${mainTab === "board" ? "is-active" : ""}`}
+            onClick={() => switchMainTab("board")}
+          >
+            {t("boardOpen")}
+            {boardUnseen && mainTab !== "board" ? (
+              <span className="main-tabs__dot" aria-label={t("boardUpdated")} />
+            ) : null}
+          </button>
+        </nav>
+      ) : null}
+      {!settingsOnly && mainTab === "board" ? (
+        <BoardPanel socketUrl={activeSocketBaseFromRef(socketRef, baseUrl)} />
+      ) : null}
+      {!settingsOnly && mainTab === "people" ? (
+        <div className="main-layout main-layout--roster-only">
+          <aside className="sidebar-users" aria-label={t("sidebarAria")} onClick={onSidebarBlankClick}>
           <ul className="sidebar-users-list">
             {!connected ? (
               <li className="sidebar-hint">{t("sidebarHintOffline")}</li>
@@ -2756,7 +2777,6 @@ export default function App() {
   if (p.get("mode") === "chat") return <ChatApp />;
   if (p.get("mode") === "quickMessages") return <QuickMessagesApp />;
   if (p.get("mode") === "info") return <InfoApp />;
-  if (p.get("mode") === "board") return <BoardApp />;
   if (p.get("mode") === "settings") return <RosterApp settingsOnly />;
   return <RosterApp />;
 }

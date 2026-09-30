@@ -1,6 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { io } from "socket.io-client";
-import { applyThemeToDocument, getStoredTheme } from "../theme.js";
 import { useI18n } from "../i18n/I18nContext.jsx";
 import {
   NOTE_KINDS,
@@ -806,14 +805,11 @@ function ManageView({ t, locale, board, emitAck }) {
   );
 }
 
-/* ───────────── Pencere ───────────── */
+/* ───────────── Ana penceredeki Pano sekmesi ───────────── */
 
-export default function BoardApp() {
+/** Sekme açıkken kendi soketini tutar (presence:join yok, kişi listesinde görünmez). */
+export default function BoardPanel({ socketUrl }) {
   const { t, locale } = useI18n();
-  const socketUrl = useMemo(() => {
-    const p = new URLSearchParams(window.location.search).get("socketUrl");
-    return p || "http://127.0.0.1:3847";
-  }, []);
   const socketRef = useRef(null);
   const [connected, setConnected] = useState(false);
   const [board, setBoard] = useState(null);
@@ -821,21 +817,6 @@ export default function BoardApp() {
   const [view, setView] = useState("board");
   const [now, setNow] = useState(() => new Date());
   const [notice, setNotice] = useState("");
-
-  useEffect(() => {
-    applyThemeToDocument(getStoredTheme());
-    const sync = () => applyThemeToDocument(getStoredTheme());
-    window.addEventListener("storage", sync);
-    window.addEventListener("focus", sync);
-    return () => {
-      window.removeEventListener("storage", sync);
-      window.removeEventListener("focus", sync);
-    };
-  }, []);
-
-  useEffect(() => {
-    document.title = t("boardDocTitle");
-  }, [t]);
 
   useEffect(() => {
     const id = setInterval(() => setNow(new Date()), 20000);

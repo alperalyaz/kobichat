@@ -53,8 +53,6 @@ let infoWindow = null;
 let quickMessagesWindow = null;
 /** @type {BrowserWindow | null} */
 let settingsWindow = null;
-/** @type {BrowserWindow | null} */
-let boardWindow = null;
 /** @type {ReturnType<createChatServer> | null} */
 let chatInstance = null;
 /** @type {ReturnType<openSettingsStore> | null} */
@@ -428,6 +426,7 @@ const ROSTER_SCREEN_MARGIN = 12;
 
 function positionMainWindowBottomRight() {
   if (!mainWindow || mainWindow.isDestroyed()) return;
+  if (mainWindowMode === "board") return;
   try {
     const wa = screen.getPrimaryDisplay().workArea;
     const [w, h] = mainWindow.getSize();
@@ -437,6 +436,50 @@ function positionMainWindowBottomRight() {
   } catch {
     // ignored
   }
+}
+
+/** Ana pencere: "roster" (dar kişi listesi, sağ alt köşe) veya "board" (Pano sekmesi, geniş, ortada). */
+let mainWindowMode = "roster";
+/** @type {{ bounds: Electron.Rectangle, minSize: number[] } | null} */
+let rosterStateBeforeBoard = null;
+const BOARD_TAB_SIZE = { width: 1040, height: 700 };
+
+function setMainWindowMode(mode) {
+  if (!mainWindow || mainWindow.isDestroyed()) return false;
+  const next = mode === "board" ? "board" : "roster";
+  if (next === mainWindowMode) return true;
+  try {
+    if (next === "board") {
+      const bounds = mainWindow.getBounds();
+      rosterStateBeforeBoard = { bounds, minSize: mainWindow.getMinimumSize() };
+      const wa = screen.getDisplayMatching(bounds).workArea;
+      const width = Math.min(BOARD_TAB_SIZE.width, wa.width);
+      const height = Math.min(BOARD_TAB_SIZE.height, wa.height);
+      mainWindowMode = "board";
+      mainWindow.setMinimumSize(Math.min(720, width), Math.min(520, height));
+      mainWindow.setBounds({
+        x: Math.round(wa.x + (wa.width - width) / 2),
+        y: Math.round(wa.y + (wa.height - height) / 2),
+        width,
+        height
+      });
+    } else {
+      mainWindowMode = "roster";
+      if (mainWindow.isMaximized()) mainWindow.unmaximize();
+      const prev = rosterStateBeforeBoard;
+      rosterStateBeforeBoard = null;
+      if (prev) {
+        mainWindow.setMinimumSize(prev.minSize[0], prev.minSize[1]);
+        mainWindow.setBounds(prev.bounds);
+      } else {
+        mainWindow.setContentSize(275, 520);
+        positionMainWindowBottomRight();
+      }
+    }
+  } catch {
+    return false;
+  }
+  return true;
 }
 
 function showRosterWindow() {
@@ -525,42 +568,6 @@ function openQuickMessagesWindow() {
       );
     }
   }
-  return { ok: true };
-}
-
-function openBoardWindow(options) {
-  const socketUrl = String(options?.socketUrl || "").trim();
-  if (boardWindow && !boardWindow.isDestroyed()) {
-    if (boardWindow.isMinimized()) boardWindow.restore();
-    boardWindow.show();
-    boardWindow.focus();
-    return { ok: true };
-  }
-  boardWindow = new BrowserWindow({
-    width: 1040,
-    height: 700,
-    minWidth: 560,
-    minHeight: 420,
-    show: false,
-    frame: true,
-    title: "KobiChat — Pano",
-    backgroundColor: "#0f172a",
-    autoHideMenuBar: true,
-    icon: windowIconPath(),
-    webPreferences: {
-      preload: path.join(__dirname, "preload.cjs"),
-      contextIsolation: true,
-      nodeIntegration: false
-    }
-  });
-  removeDefaultWindowMenu(boardWindow);
-  boardWindow.once("ready-to-show", () => {
-    if (boardWindow && !boardWindow.isDestroyed()) boardWindow.show();
-  });
-  boardWindow.on("closed", () => {
-    boardWindow = null;
-  });
-  loadInfoWindowContent(boardWindow, { mode: "board", socketUrl });
   return { ok: true };
 }
 
@@ -2138,7 +2145,7 @@ if (!app.requestSingleInstanceLock()) {
     ipcMain.handle("kobichat:open-info-window", (_e, options) => openInfoWindow(options));
     ipcMain.handle("kobichat:open-settings-window", () => openSettingsWindow());
     ipcMain.handle("kobichat:open-quick-messages", () => openQuickMessagesWindow());
-    ipcMain.handle("kobichat:open-board-window", (_e, options) => openBoardWindow(options));
+    ipcMain.handle("kobichat:set-main-window-mode", (_e, mode) => setMainWindowMode(mode));
     ipcMain.handle("kobichat:show-shock", (_e, payload) => {
       showShockWindow(payload?.title, payload?.message, payload || {});
     });

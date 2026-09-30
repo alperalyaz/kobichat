@@ -6,7 +6,8 @@ contextBridge.exposeInMainWorld("kobiChat", {
   openInfoWindow: (options) => ipcRenderer.invoke("kobichat:open-info-window", options),
   openSettingsWindow: () => ipcRenderer.invoke("kobichat:open-settings-window"),
   openQuickMessagesWindow: () => ipcRenderer.invoke("kobichat:open-quick-messages"),
-  openBoardWindow: (options) => ipcRenderer.invoke("kobichat:open-board-window", options),
+  /** Ana pencere boyutu: "roster" (dar liste) | "board" (Pano sekmesi, geniş). */
+  setMainWindowMode: (mode) => ipcRenderer.invoke("kobichat:set-main-window-mode", mode),
   showShock: (payload) => ipcRenderer.invoke("kobichat:show-shock", payload),
   showNotify: (payload) => ipcRenderer.invoke("kobichat:show-notify", payload),
   pickLocalApp: () => ipcRenderer.invoke("kobichat:pick-local-app"),

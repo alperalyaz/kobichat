@@ -1,10 +1,15 @@
 .bd-shell {
-  min-height: 100vh;
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
   display: flex;
   flex-direction: column;
   background: var(--bg);
   color: var(--text);
   font-family: var(--font);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  user-select: text;
 }
 
 .bd-header {
@@ -566,38 +571,51 @@ textarea.bd-input {
   color: #fff;
 }
 
-/* Kişi listesi → Pano düğmesi */
+/* Ana pencere: Kişiler | Pano sekmeleri */
 
-.roster-board-btn {
+.main-tabs {
   display: flex;
-  align-items: center;
-  gap: 8px;
-  width: calc(100% - 16px);
-  margin: 8px 8px 4px;
-  padding: 8px 12px;
+  gap: 4px;
+  padding: 3px;
   border: 1px solid var(--border);
   border-radius: 10px;
   background: var(--bg-elevated);
+  flex-shrink: 0;
+  width: 100%;
+  max-width: 260px;
+  box-sizing: border-box;
+  align-self: flex-start;
+}
+
+.main-tabs__btn {
+  flex: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border: none;
+  border-radius: 7px;
+  background: transparent;
   color: var(--text);
+  padding: 6px 10px;
   font: inherit;
   font-size: 13px;
   font-weight: 600;
   cursor: pointer;
-  position: relative;
 }
 
-.roster-board-btn:hover {
-  border-color: var(--accent);
+.main-tabs__btn:hover:not(.is-active) {
+  background: var(--surface);
 }
 
-.roster-board-btn__icon {
-  font-family: var(--font-emoji);
+.main-tabs__btn.is-active {
+  background: var(--accent);
+  color: #fff;
 }
 
-.roster-board-btn__dot {
-  margin-left: auto;
-  width: 8px;
-  height: 8px;
+.main-tabs__dot {
+  width: 7px;
+  height: 7px;
   border-radius: 50%;
   background: var(--danger);
 }

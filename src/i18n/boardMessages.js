@@ -1,9 +1,9 @@
 /** Pano (KobiTools'tan taşınan bilgi panosu) metinleri. Tüm dillerde aynı anahtarlar. */
 export const BOARD_MESSAGES = {
   tr: {
+    mainTabPeople: "Kişiler",
     boardOpen: "Pano",
     boardUpdated: "Panoda yeni bilgi var",
-    boardDocTitle: "KobiChat — Pano",
     boardBrand: "KobiChat · Pano",
     boardShockOk: "Anladım",
     boardShockFallback: "ÖNEMLİ BİLDİRİM",
@@ -97,9 +97,9 @@ export const BOARD_MESSAGES = {
     boardManageHint: "Bu bilgisayar sunucu olduğu için pano yalnızca buradan düzenlenebilir. Kaydettiğiniz her şey anında herkese gider."
   },
   en: {
+    mainTabPeople: "People",
     boardOpen: "Board",
     boardUpdated: "New on the board",
-    boardDocTitle: "KobiChat — Board",
     boardBrand: "KobiChat · Board",
     boardShockOk: "Got it",
     boardShockFallback: "IMPORTANT NOTICE",
@@ -193,9 +193,9 @@ export const BOARD_MESSAGES = {
     boardManageHint: "This computer is the server, so the board can only be edited here. Everything you save reaches everyone instantly."
   },
   de: {
+    mainTabPeople: "Kontakte",
     boardOpen: "Pinnwand",
     boardUpdated: "Neues auf der Pinnwand",
-    boardDocTitle: "KobiChat — Pinnwand",
     boardBrand: "KobiChat · Pinnwand",
     boardShockOk: "Verstanden",
     boardShockFallback: "WICHTIGE MELDUNG",
@@ -289,9 +289,9 @@ export const BOARD_MESSAGES = {
     boardManageHint: "Dieser Computer ist der Server, daher kann die Pinnwand nur hier bearbeitet werden. Alles Gespeicherte erreicht sofort alle."
   },
   fr: {
+    mainTabPeople: "Contacts",
     boardOpen: "Tableau",
     boardUpdated: "Nouveau sur le tableau",
-    boardDocTitle: "KobiChat — Tableau",
     boardBrand: "KobiChat · Tableau",
     boardShockOk: "Compris",
     boardShockFallback: "AVIS IMPORTANT",
@@ -385,9 +385,9 @@ export const BOARD_MESSAGES = {
     boardManageHint: "Cet ordinateur est le serveur : le tableau ne peut être modifié qu'ici. Tout ce que vous enregistrez parvient instantanément à tous."
   },
   es: {
+    mainTabPeople: "Contactos",
     boardOpen: "Tablón",
     boardUpdated: "Novedades en el tablón",
-    boardDocTitle: "KobiChat — Tablón",
     boardBrand: "KobiChat · Tablón",
     boardShockOk: "Entendido",
     boardShockFallback: "AVISO IMPORTANTE",
