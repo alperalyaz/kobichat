@@ -71,7 +71,7 @@ export function I18nProvider({ children }) {
       document.documentElement.lang = lang;
       try {
         const mode = new URLSearchParams(window.location.search).get("mode");
-        if (mode !== "chat" && mode !== "quickMessages" && mode !== "settings" && mode !== "info") {
+        if (mode !== "chat" && mode !== "quickMessages" && mode !== "settings" && mode !== "info" && mode !== "board") {
           document.title = translate(lang, "appTitle");
         }
       } catch {

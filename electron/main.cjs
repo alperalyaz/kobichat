@@ -53,6 +53,8 @@ let infoWindow = null;
 let quickMessagesWindow = null;
 /** @type {BrowserWindow | null} */
 let settingsWindow = null;
+/** @type {BrowserWindow | null} */
+let boardWindow = null;
 /** @type {ReturnType<createChatServer> | null} */
 let chatInstance = null;
 /** @type {ReturnType<openSettingsStore> | null} */
@@ -524,6 +526,230 @@ function openQuickMessagesWindow() {
     }
   }
   return { ok: true };
+}
+
+function openBoardWindow(options) {
+  const socketUrl = String(options?.socketUrl || "").trim();
+  if (boardWindow && !boardWindow.isDestroyed()) {
+    if (boardWindow.isMinimized()) boardWindow.restore();
+    boardWindow.show();
+    boardWindow.focus();
+    return { ok: true };
+  }
+  boardWindow = new BrowserWindow({
+    width: 1040,
+    height: 700,
+    minWidth: 560,
+    minHeight: 420,
+    show: false,
+    frame: true,
+    title: "KobiChat — Pano",
+    backgroundColor: "#0f172a",
+    autoHideMenuBar: true,
+    icon: windowIconPath(),
+    webPreferences: {
+      preload: path.join(__dirname, "preload.cjs"),
+      contextIsolation: true,
+      nodeIntegration: false
+    }
+  });
+  removeDefaultWindowMenu(boardWindow);
+  boardWindow.once("ready-to-show", () => {
+    if (boardWindow && !boardWindow.isDestroyed()) boardWindow.show();
+  });
+  boardWindow.on("closed", () => {
+    boardWindow = null;
+  });
+  loadInfoWindowContent(boardWindow, { mode: "board", socketUrl });
+  return { ok: true };
+}
+
+function escHtml(s) {
+  return String(s ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+function appIconDataUrl() {
+  try {
+    const p = windowIconPath();
+    if (!p) return "";
+    return `data:image/png;base64,${fs.readFileSync(p).toString("base64")}`;
+  } catch {
+    return "";
+  }
+}
+
+/** Şok bildirim: tam ekran, yanıp sönen kırmızı, sesli acil uyarı (pano → herkese). */
+function showShockWindow(title, message, opts) {
+  const o = opts || {};
+  const okLabel = escHtml(o.okLabel) || "Anladım";
+  const brandLabel = escHtml(o.brandLabel) || "KobiChat";
+  const titleFallback = escHtml(o.titleFallback) || "ÖNEMLİ BİLDİRİM";
+  let bounds = { x: 0, y: 0, width: 1280, height: 800 };
+  try {
+    bounds = screen.getPrimaryDisplay().bounds;
+  } catch {
+    // varsayılan
+  }
+  const win = new BrowserWindow({
+    x: bounds.x,
+    y: bounds.y,
+    width: bounds.width,
+    height: bounds.height,
+    frame: false,
+    resizable: false,
+    movable: false,
+    show: false,
+    skipTaskbar: true,
+    alwaysOnTop: true,
+    fullscreenable: true,
+    backgroundColor: "#dc2626",
+    webPreferences: {
+      contextIsolation: true,
+      nodeIntegration: false,
+      autoplayPolicy: "no-user-gesture-required"
+    }
+  });
+  win.setAlwaysOnTop(true, "screen-saver");
+  try {
+    win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+  } catch {
+    // platforma bağlı
+  }
+  const logoSrc = appIconDataUrl();
+  const html =
+    `<!doctype html><html><head><meta charset="utf-8"><style>` +
+    `html,body{margin:0;height:100%;font-family:system-ui,'Segoe UI',sans-serif;}` +
+    `body{display:flex;align-items:center;justify-content:center;` +
+    `background:#b91c1c;animation:kc-flash .6s steps(1) infinite;}` +
+    `@keyframes kc-flash{0%{background:#dc2626}50%{background:#7f1d1d}100%{background:#dc2626}}` +
+    `.card{background:#fff;border-radius:22px;padding:40px 36px;max-width:760px;width:82%;` +
+    `max-height:88vh;box-sizing:border-box;text-align:center;box-shadow:0 24px 90px rgba(0,0,0,.55);` +
+    `border:4px solid #dc2626;overflow:auto}` +
+    `.icon{font-size:72px;line-height:1}` +
+    `h1{color:#b91c1c;font-size:34px;margin:12px 0 16px;word-break:break-word}` +
+    `p{color:#1f2937;font-size:20px;line-height:1.55;margin:0 0 28px;white-space:pre-line;word-break:break-word}` +
+    `button{background:#dc2626;color:#fff;border:none;border-radius:12px;padding:16px 36px;` +
+    `font-size:18px;font-weight:700;cursor:pointer;min-width:200px}` +
+    `.brand{display:flex;align-items:center;justify-content:center;gap:8px;margin-top:22px;` +
+    `color:#94a3b8;font-size:14px;font-weight:600}` +
+    `.brand img{width:22px;height:22px;border-radius:6px}</style></head><body>` +
+    `<div class="card"><div class="icon">🚨</div><h1>${escHtml(title) || titleFallback}</h1>` +
+    (escHtml(message) ? `<p>${escHtml(message)}</p>` : "") +
+    `<button id="b" onclick="window.close()">${okLabel} (<span id="c">20</span>)</button>` +
+    `<div class="brand">${logoSrc ? `<img src="${logoSrc}" alt=""/>` : ""}${brandLabel}</div></div>` +
+    `<script>` +
+    `try{var AC=window.AudioContext||window.webkitAudioContext;var ac=new AC();` +
+    `function beep(t){var o=ac.createOscillator();var g=ac.createGain();o.connect(g);g.connect(ac.destination);` +
+    `o.type='square';o.frequency.value=880;g.gain.setValueAtTime(0.0001,t);` +
+    `g.gain.exponentialRampToValueAtTime(0.35,t+0.02);g.gain.exponentialRampToValueAtTime(0.0001,t+0.28);` +
+    `o.start(t);o.stop(t+0.3);}var b=ac.currentTime;for(var i=0;i<6;i++){beep(b+i*0.45);}}catch(e){}` +
+    `var n=20;var t=setInterval(function(){n--;if(n<=0){clearInterval(t);window.close();}` +
+    `else{document.getElementById('c').textContent=n;}},1000);</script></body></html>`;
+  win.loadURL("data:text/html;charset=utf-8," + encodeURIComponent(html));
+  win.once("ready-to-show", () => {
+    win.show();
+    win.focus();
+    try {
+      win.flashFrame(true);
+    } catch {
+      // ignored
+    }
+  });
+  setTimeout(() => {
+    if (!win.isDestroyed()) win.close();
+  }, 23000);
+}
+
+/** Zamanlı bildirim: ekranın ortasında küçük, sakin pencere + nazik çıngırak. */
+function showNotifyWindow(title, message, opts) {
+  const o = opts || {};
+  const W = 460;
+  const H = 320;
+  let x = 0;
+  let y = 0;
+  try {
+    const area = screen.getPrimaryDisplay().workArea;
+    x = Math.round(area.x + (area.width - W) / 2);
+    y = Math.round(area.y + (area.height - H) / 2);
+  } catch {
+    // varsayılan
+  }
+  const accent = /^#[0-9a-fA-F]{6}$/.test(o.color || "") ? o.color : "#4f46e5";
+  const icon = escHtml(o.icon) || "🔔";
+  const secs = Number(o.seconds) > 0 ? Math.min(300, Math.round(Number(o.seconds))) : 45;
+  const win = new BrowserWindow({
+    x,
+    y,
+    width: W,
+    height: H,
+    frame: false,
+    resizable: false,
+    movable: false,
+    show: false,
+    skipTaskbar: true,
+    alwaysOnTop: true,
+    transparent: true,
+    hasShadow: true,
+    backgroundColor: "#00000000",
+    webPreferences: {
+      contextIsolation: true,
+      nodeIntegration: false,
+      autoplayPolicy: "no-user-gesture-required"
+    }
+  });
+  win.setAlwaysOnTop(true, "screen-saver");
+  try {
+    win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+  } catch {
+    // platforma bağlı
+  }
+  const logoSrc = appIconDataUrl();
+  const ok = escHtml(o.okLabel) || "Tamam";
+  const brand = escHtml(o.brandLabel) || "KobiChat";
+  const html =
+    `<!doctype html><html><head><meta charset="utf-8"><style>` +
+    `html,body{margin:0;height:100%;background:transparent;font-family:system-ui,'Segoe UI',sans-serif;overflow:hidden;}` +
+    `body{display:flex;align-items:center;justify-content:center;padding:14px;box-sizing:border-box;}` +
+    `.card{position:relative;background:#fff;border-radius:18px;width:100%;height:100%;box-sizing:border-box;` +
+    `padding:24px 26px;text-align:center;display:flex;flex-direction:column;align-items:center;justify-content:center;` +
+    `box-shadow:0 18px 60px rgba(15,23,42,.45);animation:kc-pop .3s cubic-bezier(.2,.9,.3,1.3);overflow:hidden;}` +
+    `.card:before{content:"";position:absolute;top:0;left:0;right:0;height:6px;` +
+    `background:linear-gradient(90deg,${accent},${accent}99);}` +
+    `@keyframes kc-pop{from{transform:scale(.94);opacity:0}to{transform:scale(1);opacity:1}}` +
+    `.icon{font-size:46px;line-height:1;margin-bottom:6px}` +
+    `h1{color:#0f172a;font-size:21px;margin:0 0 8px;word-break:break-word;line-height:1.25}` +
+    `p{color:#475569;font-size:15px;line-height:1.5;margin:0 0 18px;white-space:pre-line;word-break:break-word;` +
+    `max-height:96px;overflow:auto}` +
+    `button{background:${accent};color:#fff;border:none;border-radius:10px;padding:10px 26px;` +
+    `font-size:14px;font-weight:700;cursor:pointer}` +
+    `.brand{display:flex;align-items:center;justify-content:center;gap:6px;margin-top:14px;` +
+    `color:#94a3b8;font-size:12px;font-weight:600}` +
+    `.brand img{width:18px;height:18px;border-radius:5px}</style></head><body>` +
+    `<div class="card"><div class="icon">${icon}</div>` +
+    (escHtml(title) ? `<h1>${escHtml(title)}</h1>` : "") +
+    (escHtml(message) ? `<p>${escHtml(message)}</p>` : "") +
+    `<button id="b" onclick="window.close()">${ok} (<span id="c">${secs}</span>)</button>` +
+    `<div class="brand">${logoSrc ? `<img src="${logoSrc}" alt=""/>` : ""}${brand}</div></div>` +
+    `<script>` +
+    `try{var AC=window.AudioContext||window.webkitAudioContext;var ac=new AC();` +
+    `function tone(f,s,d,p){var o=ac.createOscillator();var g=ac.createGain();o.type='sine';o.frequency.value=f;` +
+    `o.connect(g);g.connect(ac.destination);g.gain.setValueAtTime(0.00001,s);` +
+    `g.gain.exponentialRampToValueAtTime(p,s+0.02);g.gain.exponentialRampToValueAtTime(0.00001,s+d);` +
+    `o.start(s);o.stop(s+d+0.02);}var b=ac.currentTime+0.04;` +
+    `tone(587.33,b,0.3,0.2);tone(783.99,b+0.16,0.3,0.2);tone(1046.5,b+0.32,0.5,0.22);}catch(e){}` +
+    `var n=${secs};var t=setInterval(function(){n--;if(n<=0){clearInterval(t);window.close();}` +
+    `else{document.getElementById('c').textContent=n;}},1000);</script></body></html>`;
+  win.loadURL("data:text/html;charset=utf-8," + encodeURIComponent(html));
+  win.once("ready-to-show", () => {
+    win.show();
+  });
+  setTimeout(() => {
+    if (!win.isDestroyed()) win.close();
+  }, (secs + 2) * 1000);
 }
 
 function loadInfoWindowContent(win, query) {
@@ -1912,6 +2138,35 @@ if (!app.requestSingleInstanceLock()) {
     ipcMain.handle("kobichat:open-info-window", (_e, options) => openInfoWindow(options));
     ipcMain.handle("kobichat:open-settings-window", () => openSettingsWindow());
     ipcMain.handle("kobichat:open-quick-messages", () => openQuickMessagesWindow());
+    ipcMain.handle("kobichat:open-board-window", (_e, options) => openBoardWindow(options));
+    ipcMain.handle("kobichat:show-shock", (_e, payload) => {
+      showShockWindow(payload?.title, payload?.message, payload || {});
+    });
+    ipcMain.handle("kobichat:show-notify", (_e, payload) => {
+      showNotifyWindow(payload?.title, payload?.message, payload || {});
+    });
+    /** Pano "yerel program" kısayolu: yol her bilgisayarda kullanıcının kendi seçimi. */
+    ipcMain.handle("kobichat:pick-local-app", async (event) => {
+      const win = BrowserWindow.fromWebContents(event.sender) || undefined;
+      const r = await dialog.showOpenDialog(win, {
+        properties: ["openFile"],
+        filters:
+          process.platform === "win32"
+            ? [
+                { name: "Programs", extensions: ["exe", "lnk", "bat", "cmd", "url"] },
+                { name: "*", extensions: ["*"] }
+              ]
+            : [{ name: "*", extensions: ["*"] }]
+      });
+      if (r.canceled || !r.filePaths?.[0]) return "";
+      return r.filePaths[0];
+    });
+    ipcMain.handle("kobichat:open-local-app", async (_e, rawPath) => {
+      const p = String(rawPath || "").trim();
+      if (!p || !path.isAbsolute(p) || !fs.existsSync(p)) return false;
+      const err = await shell.openPath(p);
+      return !err;
+    });
     ipcMain.handle("kobichat:open-external", (_e, rawUrl) => {
       const url = String(rawUrl || "").trim();
       if (!/^(mailto:|https?:\/\/)/i.test(url)) return false;

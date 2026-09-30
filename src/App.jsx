@@ -13,6 +13,8 @@ import { detectBrowserLang, normalizeLang, useI18n } from "./i18n/I18nContext.js
 import { LanguageSelectWithFlags } from "./i18n/LanguageSelect.jsx";
 import ChatApp from "./ChatApp.jsx";
 import QuickMessagesApp from "./QuickMessagesApp.jsx";
+import BoardApp from "./board/BoardApp.jsx";
+import { schedKind } from "./board/kinds.js";
 import { KOBI_BRIDGE } from "./socketBridge.js";
 import { useAppVersion } from "./useAppVersion.js";
 import htLogoUrl from "../ht_logo.webp";
@@ -484,6 +486,8 @@ function RosterApp({ settingsOnly = false }) {
   const [bulkOpen, setBulkOpen] = useState(false);
   const [bulkText, setBulkText] = useState("");
   const [bulkSending, setBulkSending] = useState(false);
+  /** Pano notu/menüsü değişti, kullanıcı henüz panoyu açmadı. */
+  const [boardUnseen, setBoardUnseen] = useState(false);
 
   useEffect(() => {
     if (!settingsOnly) return;
@@ -1362,6 +1366,33 @@ function RosterApp({ settingsOnly = false }) {
       postToChatWindows({ type: "socket:presence-roster", users: list });
     });
 
+    /** Pano: şok bildirim ve zamanlı bildirimler bu bilgisayarda yalnızca liste penceresinden gösterilir. */
+    s.on("board:shock", (p) => {
+      const tr = tRef.current;
+      void window.kobiChat?.showShock?.({
+        title: p?.title || "",
+        message: p?.body || "",
+        okLabel: tr("boardShockOk"),
+        titleFallback: tr("boardShockFallback"),
+        brandLabel: tr("boardBrand")
+      });
+    });
+    s.on("board:notify", (p) => {
+      const tr = tRef.current;
+      const k = schedKind(p?.kind);
+      void window.kobiChat?.showNotify?.({
+        title: p?.title || "",
+        message: p?.body || "",
+        icon: k.icon,
+        color: k.color,
+        okLabel: tr("boardNotifyOk"),
+        brandLabel: tr("boardBrand")
+      });
+    });
+    s.on("board:patch", (p) => {
+      if (p?.key === "notes" || p?.key === "meal") setBoardUnseen(true);
+    });
+
     s.on("history", (payload) => {
       const pend = pendingDmRef.current;
       pendingDmRef.current = null;
@@ -2167,6 +2198,28 @@ function RosterApp({ settingsOnly = false }) {
       {!settingsOnly ? (
         <div className="main-layout main-layout--roster-only">
           <aside className="sidebar-users" aria-label={t("sidebarAria")} onClick={onSidebarBlankClick}>
+          <button
+            type="button"
+            className="roster-board-btn"
+            onClick={(e) => {
+              e.stopPropagation();
+              setBoardUnseen(false);
+              const socketUrl = activeSocketBaseFromRef(socketRef, baseUrl);
+              if (window.kobiChat?.openBoardWindow) {
+                void window.kobiChat.openBoardWindow({ socketUrl });
+              } else {
+                const q = new URLSearchParams({ mode: "board", socketUrl });
+                window.open(`?${q.toString()}`, "_blank", "noopener");
+              }
+            }}
+            title={t("boardOpen")}
+          >
+            <span className="roster-board-btn__icon" aria-hidden>
+              📋
+            </span>
+            {t("boardOpen")}
+            {boardUnseen ? <span className="roster-board-btn__dot" aria-label={t("boardUpdated")} /> : null}
+          </button>
           <ul className="sidebar-users-list">
             {!connected ? (
               <li className="sidebar-hint">{t("sidebarHintOffline")}</li>
@@ -2703,6 +2756,7 @@ export default function App() {
   if (p.get("mode") === "chat") return <ChatApp />;
   if (p.get("mode") === "quickMessages") return <QuickMessagesApp />;
   if (p.get("mode") === "info") return <InfoApp />;
+  if (p.get("mode") === "board") return <BoardApp />;
   if (p.get("mode") === "settings") return <RosterApp settingsOnly />;
   return <RosterApp />;
 }

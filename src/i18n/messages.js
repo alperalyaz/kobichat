@@ -3,6 +3,8 @@
  * Anahtarlar İngilizce; değerler dile göre.
  */
 
+import { BOARD_MESSAGES } from "./boardMessages.js";
+
 export const LANGS = ["tr", "en", "de", "fr", "es"];
 
 /** @type {Record<string, Record<string, string>>} */
@@ -1184,3 +1186,7 @@ export const MESSAGES = {
     pokeErrorGeneric: "No se pudo enviar la vibración."
   }
 };
+
+for (const lang of LANGS) {
+  Object.assign(MESSAGES[lang], BOARD_MESSAGES[lang]);
+}

@@ -7,6 +7,7 @@ const cors = require("cors");
 const multer = require("multer");
 const { Server } = require("socket.io");
 const { randomUUID, createHash } = require("crypto");
+const { attachBoard } = require("./board.cjs");
 
 const DEFAULT_PORT = 3847;
 /** Sunucu sürümü (/api/server-meta ile dışarı verilir; teşhis için). */
@@ -1003,8 +1004,11 @@ async function createChatServer(options) {
     io.emit("presence:roster", rosterPayload());
   }
 
+  const board = attachBoard({ db, saveDb, io });
+
   io.on("connection", (socket) => {
     socket.emit("presence:roster", rosterPayload());
+    board.onConnection(socket);
 
     /**
      * Bağlantı yaşam döngüsü logu (connections.jsonl): aralıklı kopma
@@ -1568,6 +1572,7 @@ async function createChatServer(options) {
       server.listen(port, host, () => {
         scheduleFilePurge();
         scheduleAckReconcile();
+        board.start();
         console.log(
           `[kobichat] Sunucu http://${host}:${port} (pid=${process.pid}) — poke-ack aktif; doğrulama: GET /api/server-meta`
         );
@@ -1576,6 +1581,7 @@ async function createChatServer(options) {
     },
     close(cb) {
       isShuttingDown = true;
+      board.stop();
       io.close(() => {
         server.close(() => {
           try {
