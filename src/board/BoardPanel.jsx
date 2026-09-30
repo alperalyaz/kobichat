@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { io } from "socket.io-client";
 import { useI18n } from "../i18n/I18nContext.jsx";
 import {
@@ -47,8 +47,12 @@ function moveItem(list, i, dir) {
   return next;
 }
 
+/** Düzenleme penceresi: bölümler kaydedince kapatır, kaydedilmemiş değişikliği bildirir. */
+const EditModalContext = createContext(null);
+
 /** Sunucu değerinden taslak; kaydedilmemiş değişiklik yokken sunucu güncellemesi taslağa yansır. */
 function useSection(key, value, emitAck) {
+  const modal = useContext(EditModalContext);
   const valueJson = JSON.stringify(value ?? null);
   const [draft, setDraft] = useState(() => JSON.parse(valueJson));
   const [dirty, setDirty] = useState(false);
@@ -57,6 +61,10 @@ function useSection(key, value, emitAck) {
   useEffect(() => {
     if (!dirty) setDraft(JSON.parse(valueJson));
   }, [valueJson, dirty]);
+
+  useEffect(() => {
+    modal?.setDirty(dirty);
+  }, [modal, dirty]);
 
   const update = useCallback((next) => {
     setDirty(true);
@@ -75,13 +83,13 @@ function useSection(key, value, emitAck) {
       const r = await emitAck("board:set", { key, value: override ?? draft });
       if (r?.ok) {
         setDirty(false);
-        setStatus("saved");
-        setTimeout(() => setStatus((s) => (s === "saved" ? "" : s)), 2500);
+        setStatus("");
+        modal?.close(true);
       } else {
         setStatus("error");
       }
     },
-    [emitAck, key, draft]
+    [emitAck, key, draft, modal]
   );
 
   return { draft, update, dirty, status, save, cancel };
@@ -89,20 +97,27 @@ function useSection(key, value, emitAck) {
 
 function SaveBar({ t, section, disabled }) {
   const { dirty, status, save, cancel } = section;
+  const modal = useContext(EditModalContext);
   return (
     <div className="bd-savebar">
       <span className={`bd-savebar__status ${status === "error" ? "is-error" : ""}`}>
         {status === "saving"
           ? t("boardSaving")
-          : status === "saved"
-            ? t("boardSaved")
-            : status === "error"
+          : status === "error"
               ? t("boardSaveError")
               : dirty
                 ? t("boardUnsaved")
                 : ""}
       </span>
-      <button type="button" className="btn" onClick={cancel} disabled={!dirty || status === "saving"}>
+      <button
+        type="button"
+        className="btn"
+        onClick={() => {
+          cancel();
+          modal?.close(true);
+        }}
+        disabled={status === "saving"}
+      >
         {t("cancel")}
       </button>
       <button
@@ -135,11 +150,24 @@ function RowTools({ t, onUp, onDown, onDelete, isFirst, isLast }) {
 
 /* ───────────── Görünüm ───────────── */
 
-function NotesCard({ t, notes }) {
+function CardHead({ t, title, onEdit }) {
+  return (
+    <div className="bd-card__head">
+      <h2 className="bd-card__title">{title}</h2>
+      {onEdit ? (
+        <button type="button" className="bd-edit-btn" onClick={onEdit} title={t("boardEdit")} aria-label={t("boardEdit")}>
+          ✎
+        </button>
+      ) : null}
+    </div>
+  );
+}
+
+function NotesCard({ t, notes, onEdit }) {
   const sorted = useMemo(() => [...notes].sort((a, b) => Number(b.pinned) - Number(a.pinned)), [notes]);
   return (
     <section className="bd-card bd-card--notes">
-      <h2 className="bd-card__title">{t("boardNotesTitle")}</h2>
+      <CardHead t={t} title={t("boardNotesTitle")} onEdit={onEdit} />
       {sorted.length === 0 ? (
         <p className="bd-empty">{t("boardNotesEmpty")}</p>
       ) : (
@@ -163,13 +191,13 @@ function NotesCard({ t, notes }) {
   );
 }
 
-function MealCard({ t, meal }) {
+function MealCard({ t, meal, onEdit }) {
   const cells = mealCellsForToday(meal?.monthly);
   const text = String(meal?.text ?? "").trim();
   const image = String(meal?.image ?? "");
   return (
     <section className="bd-card bd-card--meal">
-      <h2 className="bd-card__title">{t("boardMealTitle")}</h2>
+      <CardHead t={t} title={t("boardMealTitle")} onEdit={onEdit} />
       {image ? (
         <img className="bd-meal__img" src={image} alt={t("boardMealTitle")} />
       ) : cells ? (
@@ -189,7 +217,7 @@ function MealCard({ t, meal }) {
   );
 }
 
-function RatesCard({ t, locale, rates }) {
+function RatesCard({ t, locale, rates, onEdit }) {
   const fmt = useMemo(
     () => new Intl.NumberFormat(locale, { minimumFractionDigits: 4, maximumFractionDigits: 4 }),
     [locale]
@@ -199,9 +227,19 @@ function RatesCard({ t, locale, rates }) {
     [locale]
   );
   const fetchedAt = rates.fetchedAt ? timeFmt.format(new Date(rates.fetchedAt)) : "";
+  if (rates.mode !== "auto") {
+    return (
+      <section className="bd-card bd-card--rates">
+        <CardHead t={t} title={t("boardRatesTitle")} onEdit={onEdit} />
+        <p className="bd-empty">
+          {t("boardRatesOff")} — {t("boardRatesOffHint")}
+        </p>
+      </section>
+    );
+  }
   return (
     <section className="bd-card bd-card--rates">
-      <h2 className="bd-card__title">{t("boardRatesTitle")}</h2>
+      <CardHead t={t} title={t("boardRatesTitle")} onEdit={onEdit} />
       <ul className="bd-rates">
         {rates.codes.map((code) => {
           const v = rates.values?.[code];
@@ -232,7 +270,7 @@ function RatesCard({ t, locale, rates }) {
   );
 }
 
-function AppsCard({ t, apps, onNotice }) {
+function AppsCard({ t, apps, onNotice, onEdit }) {
   const [, force] = useState(0);
   const desktop = typeof window !== "undefined" && Boolean(window.kobiChat);
 
@@ -267,7 +305,7 @@ function AppsCard({ t, apps, onNotice }) {
 
   return (
     <section className="bd-card bd-card--apps">
-      <h2 className="bd-card__title">{t("boardAppsTitle")}</h2>
+      <CardHead t={t} title={t("boardAppsTitle")} onEdit={onEdit} />
       {apps.length === 0 ? (
         <p className="bd-empty">{t("boardAppsEmpty")}</p>
       ) : (
@@ -304,15 +342,17 @@ function AppsCard({ t, apps, onNotice }) {
   );
 }
 
-function BoardView({ t, locale, board, canEdit, onNotice }) {
-  const showRates = board.rates?.mode === "auto";
+function BoardView({ t, locale, board, canEdit, onNotice, onEdit }) {
+  const edit = (key) => (canEdit ? () => onEdit(key) : undefined);
+  /** Kurlar kapalıyken panel yalnızca düzenleyene görünür (açabilmesi için). */
+  const showRates = board.rates?.mode === "auto" || canEdit;
   return (
     <div className="bd-grid">
-      <NotesCard t={t} notes={board.notes || []} />
+      <NotesCard t={t} notes={board.notes || []} onEdit={edit("notes")} />
       <div className="bd-side">
-        <MealCard t={t} meal={board.meal} />
-        {showRates ? <RatesCard t={t} locale={locale} rates={board.rates} /> : null}
-        <AppsCard t={t} apps={board.apps || []} onNotice={onNotice} />
+        <MealCard t={t} meal={board.meal} onEdit={edit("meal")} />
+        {showRates ? <RatesCard t={t} locale={locale} rates={board.rates} onEdit={edit("rates")} /> : null}
+        <AppsCard t={t} apps={board.apps || []} onNotice={onNotice} onEdit={edit("apps")} />
       </div>
       {!canEdit ? <p className="bd-readonly">{t("boardReadonlyHint")}</p> : null}
     </div>
@@ -708,6 +748,7 @@ function AppsSection({ t, value, emitAck }) {
 }
 
 function ShockSection({ t, emitAck }) {
+  const modal = useContext(EditModalContext);
   const [title, setTitle] = useState("");
   const [body, setBody] = useState("");
   const [status, setStatus] = useState("");
@@ -720,6 +761,7 @@ function ShockSection({ t, emitAck }) {
       setTitle("");
       setBody("");
       setStatus("sent");
+      modal?.close(true);
     } else {
       setStatus("error");
     }
@@ -765,42 +807,68 @@ function ShockSection({ t, emitAck }) {
   );
 }
 
-const MANAGE_TABS = [
-  { id: "notes", tkey: "boardTabNotes" },
-  { id: "meal", tkey: "boardTabMeal" },
-  { id: "schedules", tkey: "boardTabSchedules" },
-  { id: "rates", tkey: "boardTabRates" },
-  { id: "apps", tkey: "boardTabApps" },
-  { id: "shock", tkey: "boardTabShock" }
-];
+const EDITOR_TITLES = {
+  notes: "boardNotesTitle",
+  meal: "boardMealTitle",
+  rates: "boardRatesTitle",
+  apps: "boardAppsTitle",
+  schedules: "boardSchedulesTitle",
+  shock: "boardShockTitle"
+};
 
-function ManageView({ t, locale, board, emitAck }) {
-  const [tab, setTab] = useState("notes");
+function EditModal({ t, title, onClose, children }) {
+  const dirtyRef = useRef(false);
+  const close = useCallback(
+    (force) => {
+      if (!force && dirtyRef.current && !window.confirm(t("boardDiscardConfirm"))) return;
+      onClose();
+    },
+    [onClose, t]
+  );
+  const ctx = useMemo(
+    () => ({
+      close,
+      setDirty: (d) => {
+        dirtyRef.current = d;
+      }
+    }),
+    [close]
+  );
+
+  useEffect(() => {
+    /** Liste penceresinin "Esc = pencereyi gizle" davranışı düzenleme sırasında devre dışı. */
+    document.body.dataset.boardModal = "1";
+    const onKey = (e) => {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        close(false);
+      }
+    };
+    document.addEventListener("keydown", onKey);
+    return () => {
+      delete document.body.dataset.boardModal;
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [close]);
+
   return (
-    <div className="bd-manage">
-      <p className="bd-hint">{t("boardManageHint")}</p>
-      <nav className="bd-tabs" role="tablist">
-        {MANAGE_TABS.map((x) => (
-          <button
-            key={x.id}
-            type="button"
-            role="tab"
-            aria-selected={tab === x.id}
-            className={`bd-tab ${tab === x.id ? "is-active" : ""} ${x.id === "shock" ? "bd-tab--danger" : ""}`}
-            onClick={() => setTab(x.id)}
-          >
-            {t(x.tkey)}
+    <div
+      className="bd-modal-backdrop"
+      onMouseDown={(e) => {
+        if (e.target === e.currentTarget) close(false);
+      }}
+    >
+      <div className="bd-modal" role="dialog" aria-modal="true" aria-label={title}>
+        <div className="bd-modal__head">
+          <h2 className="bd-modal__title">{title}</h2>
+          <button type="button" className="btn-modal-x" onClick={() => close(false)} aria-label={t("boardClose")}>
+            ✕
           </button>
-        ))}
-      </nav>
-      {tab === "notes" ? <NotesSection t={t} value={board.notes} emitAck={emitAck} /> : null}
-      {tab === "meal" ? <MealSection t={t} value={board.meal} emitAck={emitAck} /> : null}
-      {tab === "schedules" ? (
-        <SchedulesSection t={t} locale={locale} value={board.schedules} emitAck={emitAck} />
-      ) : null}
-      {tab === "rates" ? <RatesSection t={t} locale={locale} rates={board.rates} emitAck={emitAck} /> : null}
-      {tab === "apps" ? <AppsSection t={t} value={board.apps} emitAck={emitAck} /> : null}
-      {tab === "shock" ? <ShockSection t={t} emitAck={emitAck} /> : null}
+        </div>
+        <div className="bd-modal__body">
+          <EditModalContext.Provider value={ctx}>{children}</EditModalContext.Provider>
+        </div>
+      </div>
     </div>
   );
 }
@@ -814,7 +882,8 @@ export default function BoardPanel({ socketUrl }) {
   const [connected, setConnected] = useState(false);
   const [board, setBoard] = useState(null);
   const [canEdit, setCanEdit] = useState(false);
-  const [view, setView] = useState("board");
+  /** Açık düzenleme penceresi: notes | meal | rates | apps | schedules | shock */
+  const [editing, setEditing] = useState("");
   const [now, setNow] = useState(() => new Date());
   const [notice, setNotice] = useState("");
 
@@ -848,7 +917,7 @@ export default function BoardPanel({ socketUrl }) {
       const { canEdit: ce, ...rest } = st || {};
       setBoard(rest);
       setCanEdit(Boolean(ce));
-      if (!ce) setView("board");
+      if (!ce) setEditing("");
     });
     s.on("board:patch", (p) => {
       if (!p?.key) return;
@@ -898,22 +967,15 @@ export default function BoardPanel({ socketUrl }) {
         <div className="bd-header__right">
           {!connected ? <span className="bd-offline">{t("boardOffline")}</span> : null}
           {canEdit ? (
-            <div className="bd-switch" role="tablist">
-              <button
-                type="button"
-                className={`bd-switch__btn ${view === "board" ? "is-active" : ""}`}
-                onClick={() => setView("board")}
-              >
-                {t("boardViewBoard")}
+            <>
+              <button type="button" className="btn" onClick={() => setEditing("schedules")}>
+                ⏰ {t("boardSchedulesTitle")}
+                {board?.schedules?.length ? ` (${board.schedules.length})` : ""}
               </button>
-              <button
-                type="button"
-                className={`bd-switch__btn ${view === "manage" ? "is-active" : ""}`}
-                onClick={() => setView("manage")}
-              >
-                {t("boardViewManage")}
+              <button type="button" className="btn bd-btn-danger-outline" onClick={() => setEditing("shock")}>
+                🚨 {t("boardShockTitle")}
               </button>
-            </div>
+            </>
           ) : null}
         </div>
       </header>
@@ -921,12 +983,22 @@ export default function BoardPanel({ socketUrl }) {
       <main className="bd-main">
         {!board ? (
           <p className="bd-empty bd-empty--center">{connected ? t("boardLoading") : t("boardOffline")}</p>
-        ) : view === "manage" && canEdit ? (
-          <ManageView t={t} locale={locale} board={board} emitAck={emitAck} />
         ) : (
-          <BoardView t={t} locale={locale} board={board} canEdit={canEdit} onNotice={setNotice} />
+          <BoardView t={t} locale={locale} board={board} canEdit={canEdit} onNotice={setNotice} onEdit={setEditing} />
         )}
       </main>
+      {board && canEdit && editing ? (
+        <EditModal t={t} title={t(EDITOR_TITLES[editing])} onClose={() => setEditing("")}>
+          {editing === "notes" ? <NotesSection t={t} value={board.notes} emitAck={emitAck} /> : null}
+          {editing === "meal" ? <MealSection t={t} value={board.meal} emitAck={emitAck} /> : null}
+          {editing === "rates" ? <RatesSection t={t} locale={locale} rates={board.rates} emitAck={emitAck} /> : null}
+          {editing === "apps" ? <AppsSection t={t} value={board.apps} emitAck={emitAck} /> : null}
+          {editing === "schedules" ? (
+            <SchedulesSection t={t} locale={locale} value={board.schedules} emitAck={emitAck} />
+          ) : null}
+          {editing === "shock" ? <ShockSection t={t} emitAck={emitAck} /> : null}
+        </EditModal>
+      ) : null}
     </div>
   );
 }

@@ -2134,6 +2134,7 @@ function RosterApp({ settingsOnly = false }) {
     const onEscHideRoster = (e) => {
       if (e.key !== "Escape" || e.ctrlKey || e.altKey || e.metaKey || e.shiftKey) return;
       if (!document.hasFocus()) return;
+      if (document.body.dataset.boardModal === "1") return;
       if (settingsOpen) {
         e.preventDefault();
         e.stopPropagation();

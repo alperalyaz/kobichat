@@ -59,28 +59,6 @@
   color: var(--danger);
 }
 
-.bd-switch {
-  display: inline-flex;
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  overflow: hidden;
-}
-
-.bd-switch__btn {
-  border: none;
-  background: var(--bg-elevated);
-  color: var(--text);
-  padding: 7px 14px;
-  font: inherit;
-  font-size: 13px;
-  cursor: pointer;
-}
-
-.bd-switch__btn.is-active {
-  background: var(--accent);
-  color: #fff;
-}
-
 .bd-notice {
   margin: 10px 20px 0;
   padding: 8px 12px;
@@ -121,8 +99,34 @@
   box-shadow: 0 1px 2px rgba(15, 23, 42, 0.05);
 }
 
-.bd-card__title {
+.bd-card__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
   margin: 0 0 12px;
+}
+
+.bd-edit-btn {
+  width: 28px;
+  height: 28px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg);
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.bd-edit-btn:hover {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+.bd-card__title {
+  margin: 0;
   font-size: 13px;
   font-weight: 700;
   letter-spacing: 0.04em;
@@ -336,40 +340,6 @@
 
 /* Yönetim */
 
-.bd-manage {
-  max-width: 900px;
-  margin: 0 auto;
-}
-
-.bd-tabs {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  margin: 12px 0 14px;
-}
-
-.bd-tab {
-  border: 1px solid var(--border);
-  background: var(--bg-elevated);
-  color: var(--text);
-  border-radius: 999px;
-  padding: 6px 14px;
-  font: inherit;
-  font-size: 13px;
-  cursor: pointer;
-}
-
-.bd-tab.is-active {
-  background: var(--accent);
-  border-color: var(--accent);
-  color: #fff;
-}
-
-.bd-tab--danger.is-active {
-  background: var(--danger);
-  border-color: var(--danger);
-}
-
 .bd-section {
   display: flex;
   flex-direction: column;
@@ -565,10 +535,63 @@ textarea.bd-input {
   color: var(--danger);
 }
 
-.bd-btn-danger {
+.btn.bd-btn-danger-outline {
+  color: var(--danger);
+  border-color: var(--danger);
+}
+
+.btn.bd-btn-danger {
   background: var(--danger);
   border-color: var(--danger);
   color: #fff;
+}
+
+/* Düzenleme penceresi */
+
+.bd-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 40px 16px;
+  background: rgba(15, 23, 42, 0.45);
+  overflow: auto;
+}
+
+.bd-modal {
+  width: 100%;
+  max-width: 760px;
+  background: var(--bg-elevated);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: 0 24px 60px rgba(15, 23, 42, 0.35);
+  user-select: text;
+}
+
+.bd-modal__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--border);
+}
+
+.bd-modal__title {
+  margin: 0;
+  font-size: 17px;
+}
+
+.bd-modal__body {
+  padding: 16px 18px 18px;
+}
+
+.bd-modal .bd-section {
+  border: none;
+  padding: 0;
+  background: none;
 }
 
 /* Ana pencere: Kişiler | Pano sekmeleri */
