@@ -426,7 +426,6 @@ const ROSTER_SCREEN_MARGIN = 12;
 
 function positionMainWindowBottomRight() {
   if (!mainWindow || mainWindow.isDestroyed()) return;
-  if (mainWindowMode === "board") return;
   try {
     const wa = screen.getPrimaryDisplay().workArea;
     const [w, h] = mainWindow.getSize();
@@ -439,77 +438,118 @@ function positionMainWindowBottomRight() {
 }
 
 /**
- * Ana pencere: "roster" (dar kişi listesi) veya "board" (Pano çekmecesi açık).
- * Pano, sustalı bıçak gibi: liste yerinde kalır, pencere sağ kenarı sabit
- * kalarak sola doğru kayarak genişler; kapanınca aynı yoldan geri katlanır.
+ * Sustalı Pano çekmecesi: kişi listesi penceresi hiç kıpırdamaz. Pano, listenin hemen
+ * solunda duran çerçevesiz, şeffaf ayrı bir pencerede; içerik CSS ile listenin
+ * arkasından sola doğru kayarak çıkar (akıcı, titremesiz). Liste taşınınca/boyutu
+ * değişince peşinden gelir; liste gizlenince/küçülünce kapanır.
  */
-let mainWindowMode = "roster";
-/** @type {{ width: number, minSize: number[] } | null} */
-let rosterStateBeforeBoard = null;
 const BOARD_DRAWER_WIDTH = 700;
-const BOARD_DRAWER_MIN = 420;
-const DRAWER_ANIM_MS = 200;
-let drawerAnimTimer = null;
+/** @type {BrowserWindow | null} */
+let boardDrawerWindow = null;
+let boardDrawerSocketUrl = "";
+let boardDrawerOpen = false;
+let boardDrawerReady = false;
+let boardDrawerHideTimer = null;
 
-function animateMainWindowBounds(to) {
-  return new Promise((resolve) => {
-    if (drawerAnimTimer) clearInterval(drawerAnimTimer);
-    const from = mainWindow.getBounds();
-    const startedAt = Date.now();
-    const step = () => {
-      if (!mainWindow || mainWindow.isDestroyed()) {
-        clearInterval(drawerAnimTimer);
-        drawerAnimTimer = null;
-        resolve();
-        return;
-      }
-      const k = Math.min(1, (Date.now() - startedAt) / DRAWER_ANIM_MS);
-      const e = 1 - Math.pow(1 - k, 3);
-      mainWindow.setBounds({
-        x: Math.round(from.x + (to.x - from.x) * e),
-        y: Math.round(from.y + (to.y - from.y) * e),
-        width: Math.round(from.width + (to.width - from.width) * e),
-        height: Math.round(from.height + (to.height - from.height) * e)
-      });
-      if (k >= 1) {
-        clearInterval(drawerAnimTimer);
-        drawerAnimTimer = null;
-        resolve();
-      }
-    };
-    drawerAnimTimer = setInterval(step, 12);
-    step();
-  });
+/** Çekmece listenin solundan açılır; solda yer yoksa (liste sol kenardaysa) sağından. */
+let boardDrawerSide = "left";
+
+function boardDrawerBounds() {
+  const cb = mainWindow.getContentBounds();
+  const wa = screen.getDisplayMatching(cb).workArea;
+  const leftSpace = cb.x - wa.x;
+  const rightSpace = wa.x + wa.width - (cb.x + cb.width);
+  boardDrawerSide = leftSpace >= 480 || leftSpace >= rightSpace ? "left" : "right";
+  const space = boardDrawerSide === "left" ? leftSpace : rightSpace;
+  const width = Math.max(360, Math.min(BOARD_DRAWER_WIDTH, space));
+  const x = boardDrawerSide === "left" ? cb.x - width : cb.x + cb.width;
+  return { x, y: cb.y, width, height: cb.height };
 }
 
-async function setMainWindowMode(mode) {
-  if (!mainWindow || mainWindow.isDestroyed()) return false;
-  const next = mode === "board" ? "board" : "roster";
-  if (next === mainWindowMode) return true;
-  try {
-    if (mainWindow.isMaximized()) mainWindow.unmaximize();
-    const cur = mainWindow.getBounds();
-    const right = cur.x + cur.width;
-    if (next === "board") {
-      mainWindowMode = "board";
-      rosterStateBeforeBoard = { width: cur.width, minSize: mainWindow.getMinimumSize() };
-      const wa = screen.getDisplayMatching(cur).workArea;
-      const x = Math.max(wa.x, right - cur.width - BOARD_DRAWER_WIDTH);
-      await animateMainWindowBounds({ x, y: cur.y, width: right - x, height: cur.height });
-      const min = rosterStateBeforeBoard.minSize;
-      mainWindow.setMinimumSize(Math.min(right - x, min[0] + BOARD_DRAWER_MIN), min[1]);
-    } else {
-      mainWindowMode = "roster";
-      const prev = rosterStateBeforeBoard;
-      rosterStateBeforeBoard = null;
-      const width = prev ? prev.width : 275;
-      if (prev) mainWindow.setMinimumSize(prev.minSize[0], prev.minSize[1]);
-      await animateMainWindowBounds({ x: right - width, y: cur.y, width, height: cur.height });
-    }
-  } catch {
-    return false;
+function sendBoardDrawerState() {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send("kobichat:board-drawer-state", { open: boardDrawerOpen });
   }
+}
+
+function ensureBoardDrawer(socketUrl) {
+  if (boardDrawerWindow && !boardDrawerWindow.isDestroyed()) {
+    if (boardDrawerSocketUrl === socketUrl) return boardDrawerWindow;
+    boardDrawerWindow.destroy();
+  }
+  boardDrawerSocketUrl = socketUrl;
+  boardDrawerReady = false;
+  const win = new BrowserWindow({
+    ...boardDrawerBounds(),
+    parent: mainWindow,
+    frame: false,
+    transparent: true,
+    resizable: false,
+    movable: false,
+    minimizable: false,
+    maximizable: false,
+    fullscreenable: false,
+    skipTaskbar: true,
+    show: false,
+    hasShadow: false,
+    backgroundColor: "#00000000",
+    webPreferences: {
+      preload: path.join(__dirname, "preload.cjs"),
+      contextIsolation: true,
+      nodeIntegration: false
+    }
+  });
+  boardDrawerWindow = win;
+  win.on("closed", () => {
+    if (boardDrawerWindow === win) boardDrawerWindow = null;
+    if (boardDrawerOpen) {
+      boardDrawerOpen = false;
+      sendBoardDrawerState();
+    }
+  });
+  loadInfoWindowContent(win, { mode: "boardDrawer", socketUrl });
+  return win;
+}
+
+function openBoardDrawer(socketUrl) {
+  if (!mainWindow || mainWindow.isDestroyed() || !mainWindow.isVisible() || mainWindow.isMinimized()) return false;
+  const win = ensureBoardDrawer(socketUrl);
+  clearTimeout(boardDrawerHideTimer);
+  win.setBounds(boardDrawerBounds());
+  boardDrawerOpen = true;
+  sendBoardDrawerState();
+  win.show();
+  if (boardDrawerReady) win.webContents.send("kobichat:board-drawer", { open: true, side: boardDrawerSide });
   return true;
+}
+
+function closeBoardDrawer({ immediate = false } = {}) {
+  if (!boardDrawerOpen) return;
+  boardDrawerOpen = false;
+  sendBoardDrawerState();
+  const win = boardDrawerWindow;
+  if (!win || win.isDestroyed()) return;
+  const hide = () => {
+    if (!boardDrawerOpen && !win.isDestroyed()) win.hide();
+  };
+  if (immediate || !boardDrawerReady) {
+    hide();
+    return;
+  }
+  win.webContents.send("kobichat:board-drawer", { open: false });
+  clearTimeout(boardDrawerHideTimer);
+  /** Kapanma animasyonu bittiğinde renderer haber verir; gelmezse yine de gizle. */
+  boardDrawerHideTimer = setTimeout(hide, 700);
+}
+
+function followBoardDrawer() {
+  if (boardDrawerOpen && boardDrawerWindow && !boardDrawerWindow.isDestroyed()) {
+    const prevSide = boardDrawerSide;
+    boardDrawerWindow.setBounds(boardDrawerBounds());
+    if (boardDrawerSide !== prevSide && boardDrawerReady) {
+      boardDrawerWindow.webContents.send("kobichat:board-drawer", { open: true, side: boardDrawerSide });
+    }
+  }
 }
 
 function showRosterWindow() {
@@ -1886,6 +1926,11 @@ function createWindow() {
     try { mainWindow.flashFrame(false); } catch { /* ignored */ }
   });
 
+  mainWindow.on("move", followBoardDrawer);
+  mainWindow.on("resize", followBoardDrawer);
+  mainWindow.on("hide", () => closeBoardDrawer({ immediate: true }));
+  mainWindow.on("minimize", () => closeBoardDrawer({ immediate: true }));
+
   mainWindow.on("close", (e) => {
     if (!appQuitting) {
       e.preventDefault();
@@ -2175,7 +2220,22 @@ if (!app.requestSingleInstanceLock()) {
     ipcMain.handle("kobichat:open-info-window", (_e, options) => openInfoWindow(options));
     ipcMain.handle("kobichat:open-settings-window", () => openSettingsWindow());
     ipcMain.handle("kobichat:open-quick-messages", () => openQuickMessagesWindow());
-    ipcMain.handle("kobichat:set-main-window-mode", (_e, mode) => setMainWindowMode(mode));
+    ipcMain.handle("kobichat:board-drawer-toggle", (_e, payload) => {
+      const wantOpen = typeof payload?.open === "boolean" ? payload.open : !boardDrawerOpen;
+      if (wantOpen) return openBoardDrawer(String(payload?.socketUrl || boardDrawerSocketUrl || ""));
+      closeBoardDrawer();
+      return true;
+    });
+    ipcMain.on("kobichat:board-drawer-ready", (e) => {
+      if (!boardDrawerWindow || e.sender !== boardDrawerWindow.webContents) return;
+      boardDrawerReady = true;
+      if (boardDrawerOpen) boardDrawerWindow.webContents.send("kobichat:board-drawer", { open: true, side: boardDrawerSide });
+    });
+    ipcMain.on("kobichat:board-drawer-hidden", (e) => {
+      if (!boardDrawerWindow || e.sender !== boardDrawerWindow.webContents) return;
+      clearTimeout(boardDrawerHideTimer);
+      if (!boardDrawerOpen) boardDrawerWindow.hide();
+    });
     ipcMain.handle("kobichat:show-shock", (_e, payload) => {
       showShockWindow(payload?.title, payload?.message, payload || {});
     });

@@ -78,6 +78,8 @@
 
 .bd-main {
   flex: 1;
+  display: flex;
+  flex-direction: column;
   padding: 18px 20px 24px;
 }
 
@@ -88,7 +90,7 @@
   align-items: start;
 }
 
-@media (max-width: 760px) {
+@media (max-width: 600px) {
   .bd-grid {
     grid-template-columns: minmax(0, 1fr);
   }
@@ -135,6 +137,9 @@
 }
 
 .bd-card__title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   margin: 0;
   font-size: 13px;
   font-weight: 700;
@@ -158,14 +163,6 @@
 .bd-empty--center {
   text-align: center;
   margin-top: 60px;
-}
-
-.bd-readonly {
-  grid-column: 1 / -1;
-  margin: 4px 0 0;
-  text-align: center;
-  font-size: 12px;
-  color: var(--muted);
 }
 
 .bd-notes {
@@ -632,20 +629,22 @@ textarea.bd-input {
   min-width: 620px;
 }
 
+/* Tarayıcıdaki gömülü pano: kartlar sırayla belirir. Masaüstü çekmecesinde içerik kutuyla birlikte kayar. */
 .board-drawer .bd-card {
-  animation: bd-rise 0.38s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  animation: bd-rise 0.42s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  animation-delay: 0.08s;
 }
 
 .board-drawer .bd-side .bd-card:nth-child(1) {
-  animation-delay: 0.06s;
+  animation-delay: 0.14s;
 }
 
 .board-drawer .bd-side .bd-card:nth-child(2) {
-  animation-delay: 0.12s;
+  animation-delay: 0.2s;
 }
 
 .board-drawer .bd-side .bd-card:nth-child(3) {
-  animation-delay: 0.18s;
+  animation-delay: 0.26s;
 }
 
 @keyframes bd-rise {
@@ -825,6 +824,210 @@ textarea.bd-input {
     animation: none !important;
     transition: none !important;
   }
+}
+
+/* Sustalı çekmece penceresi (şeffaf, çerçevesiz) */
+
+html.is-board-drawer,
+html.is-board-drawer body,
+html.is-board-drawer #root {
+  background: transparent !important;
+  height: 100%;
+  overflow: hidden;
+}
+
+.drawer-root {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  padding: 0 0 0 18px;
+  transform: translateX(100%);
+  transition: transform 0.34s cubic-bezier(0.2, 0.8, 0.2, 1);
+  will-change: transform;
+}
+
+.drawer-root.is-open {
+  transform: translateX(0);
+}
+
+.drawer-root .bd-shell {
+  border-radius: 12px 0 0 12px;
+  border-right: none;
+  box-shadow: -8px 0 24px rgba(15, 23, 42, 0.28);
+}
+
+.drawer-root--right {
+  padding: 0 18px 0 0;
+  transform: translateX(-100%);
+}
+
+.drawer-root--right.is-open {
+  transform: translateX(0);
+}
+
+.drawer-root--right .bd-shell {
+  border-radius: 0 12px 12px 0;
+  border-right: 1px solid var(--border);
+  border-left: none;
+  box-shadow: 8px 0 24px rgba(15, 23, 42, 0.28);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .drawer-root {
+    transition: none;
+  }
+}
+
+/* Tek sütun (duyuru yoksa ya da yalnızca duyuru varsa) */
+
+.bd-grid--single {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.bd-grid--single .bd-side {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  align-items: start;
+}
+
+.bd-card__icon {
+  font-family: var(--font-emoji);
+  font-size: 15px;
+  letter-spacing: 0;
+}
+
+/* Kurlar: para birimi işareti */
+
+.bd-rate {
+  grid-template-columns: 26px 1fr auto 16px;
+}
+
+.bd-rate__sign {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--surface);
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.bd-rate__code {
+  color: var(--text);
+}
+
+.bd-rate__base {
+  color: var(--muted);
+  font-weight: 500;
+}
+
+/* Düzenleyene boş bölümler: ekle kutucukları */
+
+.bd-add-tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: 10px;
+  margin-top: 16px;
+}
+
+.bd-add-tile {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 14px;
+  border: 1.5px dashed var(--border);
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+  transition: color 0.15s ease, border-color 0.15s ease, background 0.15s ease;
+}
+
+.bd-add-tile:hover {
+  color: var(--accent);
+  border-color: var(--accent);
+  background: var(--bg-elevated);
+}
+
+.bd-add-tile__icon {
+  font-family: var(--font-emoji);
+  font-size: 18px;
+}
+
+.bd-add-tile__label {
+  flex: 1;
+}
+
+.bd-add-tile__plus {
+  font-size: 18px;
+  font-weight: 700;
+}
+
+.bd-state--empty {
+  margin-top: 40px;
+}
+
+.bd-state--empty.bd-state--center {
+  margin: auto;
+  padding-bottom: 40px;
+}
+
+/* Çekmecede daha derli toplu yoğunluk */
+
+.drawer-root .bd-header {
+  padding: 10px 16px;
+}
+
+.drawer-root .bd-header__time {
+  font-size: 21px;
+}
+
+.drawer-root .bd-main {
+  padding: 12px 14px 16px;
+}
+
+.drawer-root .bd-grid,
+.drawer-root .bd-side {
+  gap: 12px;
+}
+
+.drawer-root .bd-card {
+  padding: 12px 14px;
+}
+
+.drawer-root .bd-card__head {
+  margin-bottom: 10px;
+}
+
+.drawer-root .bd-state--empty:not(.bd-state--center) {
+  margin-top: 24px;
+}
+
+/* İnce kaydırma çubuğu */
+
+.bd-shell::-webkit-scrollbar {
+  width: 8px;
+}
+
+.bd-shell::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.bd-shell::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 8px;
+  border: 2px solid var(--bg);
+}
+
+.bd-shell::-webkit-scrollbar-thumb:hover {
+  background: var(--muted);
 }
 
 /* Pano yüklenemedi / sunucu eski */

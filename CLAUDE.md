@@ -16,6 +16,12 @@ yapılabiliyorsa **öyle yap**; kullanıcıya emir verir gibi adım adım görev
 - Kullanıcıya doğrudan görev **ancak başka yol yoksa** verilir (yalnızca onun bildiği şifre,
   fiziksel erişim vb.). O zaman da en kısa hâliyle: tek adım + ne görmesi gerektiği.
 
+## ⚠️ Yayından önce onay
+Kullanıcıya görünen her değişiklikte **yayınlamadan önce ekran görüntüsü (gerekirse hareketli GIF)
+gönder, onayını bekle**; ancak "tamam" dedikten sonra sürümü yükseltip `main`'e gönder.
+Görüntüleri bu ortamda gerçek uygulamadan çek (aşağıdaki "Doğrulama"); kullanıcıdan
+`npm run` vb. çalıştırmasını isteme.
+
 ## Ne bu proje?
 Şirket içi (Hidroteknik) **yerel ağ sohbet uygulaması + bilgi panosu**. İnternet gerektirmez.
 Electron masaüstü uygulaması; içinde Express + Socket.IO + SQLite (sql.js) sunucusu var.
@@ -27,7 +33,10 @@ isteğe bağlı otomatik), uygulama kısayolları, zamanlı bildirimler, şok bi
   animasyonu `setMainWindowMode`), `electron/preload.cjs` (`window.kobiChat`).
 - `server/chat-server.cjs` (sohbet sunucusu), `server/board.cjs` (Pano: `board_kv` tablosu,
   `board:get/set/shock` olayları, kur çekme, zamanlı bildirim zamanlayıcısı).
-- `src/App.jsx` (kişi listesi penceresi + solundaki **PANO** tutamağı/çekmecesi),
+- `src/App.jsx` (kişi listesi penceresi + solundaki **PANO** tutamağı),
+  `src/board/BoardDrawerApp.jsx` (sustalı çekmece: listenin solunda ayrı, çerçevesiz, şeffaf
+  pencere; liste penceresi hiç kıpırdamaz, içerik CSS `transform` ile kayar; solda yer yoksa sağdan
+  açılır; ana süreçte `openBoardDrawer`/`closeBoardDrawer`),
   `src/ChatApp.jsx` (sohbet penceresi), `src/board/` (Pano arayüzü).
 - i18n: `src/i18n/messages.js` + `src/i18n/boardMessages.js`; 5 dil (tr/en/de/fr/es).
   **Anahtar paritesi korunmalı**, görünen her metin i18n'den geçmeli.
@@ -64,6 +73,11 @@ makinenin kendi IP'lerinden biriyse `canEdit`. Ek şifre yok (kullanıcının ka
   ekran görüntüsü için Pillow `ImageGrab.grab(xdisplay=':99')`. Playwright `connectOverCDP`
   Electron 22'de çalışmıyor; ham CDP (WebSocket) kullan.
 - `pkill -f`/`pgrep -f` kullanma: kendi kabuk komutunu da eşleyip oturumu öldürüyor.
+- Geliştirme modunda her pencere DevTools açar; çekimden önce `http://127.0.0.1:9333/json/close/<id>`
+  ile kapat. Ana süreç için `--inspect=9229` + `process.mainModule.require('electron')`.
+- Bu ortamda internet trafiği ara sunucudan geçer; Electron içindeki sunucu kur çekemez
+  ("self signed certificate"). Kur görüntüsü için sunucuyu ayrı `node` süreci olarak çalıştır
+  (şirketteki kurulumla aynı). Xvfb şeffaflık desteklemez; şeffaf pencereler siyah görünür.
 
 ## Kısıtlar / tercihler
 - Sade, güvenli, gereksiz soyutlama olmayan kod. Gereksiz emoji/yorum yok.

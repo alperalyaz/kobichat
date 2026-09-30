@@ -14,6 +14,7 @@ import { LanguageSelectWithFlags } from "./i18n/LanguageSelect.jsx";
 import ChatApp from "./ChatApp.jsx";
 import QuickMessagesApp from "./QuickMessagesApp.jsx";
 import BoardPanel from "./board/BoardPanel.jsx";
+import BoardDrawerApp from "./board/BoardDrawerApp.jsx";
 import { schedKind } from "./board/kinds.js";
 import { KOBI_BRIDGE } from "./socketBridge.js";
 import { useAppVersion } from "./useAppVersion.js";
@@ -488,36 +489,32 @@ function RosterApp({ settingsOnly = false }) {
   const [bulkSending, setBulkSending] = useState(false);
   /** Pano notu/menüsü değişti, kullanıcı henüz panoyu açmadı. */
   const [boardUnseen, setBoardUnseen] = useState(false);
-  /** Pano çekmecesi (sustalı): listenin solundan kayarak açılır. */
+  /**
+   * Pano çekmecesi (sustalı). Masaüstünde liste penceresi kıpırdamaz; pano, solda ayrı
+   * şeffaf pencereden kayarak çıkar (ana süreç yönetir). Tarayıcıda liste yanında açılır.
+   */
   const [boardOpen, setBoardOpen] = useState(false);
-  /** Çekmece açıkken liste sütunu sabit genişlikte kalır; pano kalan alana yayılır. */
-  const [rosterColWidth, setRosterColWidth] = useState(0);
-  const rosterColRef = useRef(null);
-  const boardAnimatingRef = useRef(false);
 
-  const toggleBoard = useCallback(async () => {
-    if (boardAnimatingRef.current) return;
-    boardAnimatingRef.current = true;
-    try {
-      if (!boardOpen) {
-        const w = rosterColRef.current?.getBoundingClientRect().width || 0;
-        setRosterColWidth(window.kobiChat ? Math.round(w) : Math.min(Math.round(w), 300));
-        setBoardOpen(true);
-        setBoardUnseen(false);
-        await window.kobiChat?.setMainWindowMode?.("board");
-      } else {
-        await window.kobiChat?.setMainWindowMode?.("roster");
-        setBoardOpen(false);
-      }
-    } finally {
-      boardAnimatingRef.current = false;
+  const toggleBoard = useCallback(() => {
+    if (window.kobiChat?.toggleBoardDrawer) {
+      void window.kobiChat.toggleBoardDrawer({
+        open: !boardOpen,
+        socketUrl: activeSocketBaseFromRef(socketRef, baseUrl)
+      });
+      return;
     }
-  }, [boardOpen]);
+    setBoardOpen((v) => !v);
+    setBoardUnseen(false);
+  }, [boardOpen, baseUrl]);
 
   useEffect(() => {
-    /** Yeniden yüklemede pencere Pano boyutunda kalmasın. */
-    if (!settingsOnly) void window.kobiChat?.setMainWindowMode?.("roster");
-  }, [settingsOnly]);
+    if (!window.kobiChat?.onBoardDrawerState) return undefined;
+    return window.kobiChat.onBoardDrawerState((p) => {
+      const open = Boolean(p?.open);
+      setBoardOpen(open);
+      if (open) setBoardUnseen(false);
+    });
+  }, []);
 
   useEffect(() => {
     if (!settingsOnly) return;
@@ -2154,7 +2151,7 @@ function RosterApp({ settingsOnly = false }) {
       if (boardOpen && !settingsOpen) {
         e.preventDefault();
         e.stopPropagation();
-        void toggleBoard();
+        toggleBoard();
         return;
       }
       if (settingsOpen) {
@@ -2234,7 +2231,7 @@ function RosterApp({ settingsOnly = false }) {
     <div className={`app-shell ${settingsOnly ? "" : "app-shell--roster"}`}>
       {!settingsOnly ? (
         <div className={`roster-row ${boardOpen ? "is-board-open" : ""}`}>
-          {boardOpen ? (
+          {boardOpen && !window.kobiChat ? (
             <div className="board-drawer">
               <BoardPanel socketUrl={activeSocketBaseFromRef(socketRef, baseUrl)} />
             </div>
@@ -2242,7 +2239,7 @@ function RosterApp({ settingsOnly = false }) {
           <button
             type="button"
             className={`board-handle ${boardOpen ? "is-open" : ""} ${boardUnseen && !boardOpen ? "has-news" : ""}`}
-            onClick={() => void toggleBoard()}
+            onClick={toggleBoard}
             aria-expanded={boardOpen}
             title={boardOpen ? t("boardClose") : boardUnseen ? t("boardUpdated") : t("boardOpen")}
           >
@@ -2255,9 +2252,8 @@ function RosterApp({ settingsOnly = false }) {
             <span className="board-handle__grip" aria-hidden />
           </button>
         <div
-          ref={rosterColRef}
           className="main-layout main-layout--roster-only"
-          style={boardOpen && rosterColWidth ? { flex: "none", width: rosterColWidth } : undefined}
+          style={boardOpen && !window.kobiChat ? { flex: "none", width: 300 } : undefined}
         >
           <aside className="sidebar-users" aria-label={t("sidebarAria")} onClick={onSidebarBlankClick}>
           <ul className="sidebar-users-list">
@@ -2797,6 +2793,7 @@ export default function App() {
   if (p.get("mode") === "chat") return <ChatApp />;
   if (p.get("mode") === "quickMessages") return <QuickMessagesApp />;
   if (p.get("mode") === "info") return <InfoApp />;
+  if (p.get("mode") === "boardDrawer") return <BoardDrawerApp />;
   if (p.get("mode") === "settings") return <RosterApp settingsOnly />;
   return <RosterApp />;
 }

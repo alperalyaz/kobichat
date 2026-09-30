@@ -150,10 +150,17 @@ function RowTools({ t, onUp, onDown, onDelete, isFirst, isLast }) {
 
 /* ───────────── Görünüm ───────────── */
 
-function CardHead({ t, title, onEdit }) {
+const CURRENCY_SIGNS = { USD: "$", EUR: "€", GBP: "£", JPY: "¥", CHF: "₣", RUB: "₽", CNY: "¥", AZN: "₼", TRY: "₺" };
+
+function CardHead({ t, icon, title, onEdit }) {
   return (
     <div className="bd-card__head">
-      <h2 className="bd-card__title">{title}</h2>
+      <h2 className="bd-card__title">
+        <span className="bd-card__icon" aria-hidden>
+          {icon}
+        </span>
+        {title}
+      </h2>
       {onEdit ? (
         <button type="button" className="bd-edit-btn" onClick={onEdit} title={t("boardEdit")} aria-label={t("boardEdit")}>
           ✎
@@ -163,55 +170,70 @@ function CardHead({ t, title, onEdit }) {
   );
 }
 
+/** Bugün panoda gösterilecek bir şey var mı? Boş bölümler hiç gösterilmez. */
+function boardContent(board) {
+  const notes = board.notes || [];
+  const meal = board.meal || {};
+  const mealImage = String(meal.image ?? "");
+  const mealCells = mealImage ? null : mealCellsForToday(meal.monthly);
+  const mealText = String(meal.text ?? "").trim();
+  const rates = board.rates || {};
+  const hasRates =
+    rates.mode === "auto" && (rates.codes || []).some((c) => Number.isFinite(rates.values?.[c]?.value));
+  const apps = board.apps || [];
+  return {
+    notes,
+    meal: mealImage || mealCells || mealText ? { image: mealImage, cells: mealCells, text: mealText } : null,
+    rates: hasRates ? rates : null,
+    ratesOff: rates.mode !== "auto",
+    apps
+  };
+}
+
 function NotesCard({ t, notes, onEdit }) {
   const sorted = useMemo(() => [...notes].sort((a, b) => Number(b.pinned) - Number(a.pinned)), [notes]);
   return (
     <section className="bd-card bd-card--notes">
-      <CardHead t={t} title={t("boardNotesTitle")} onEdit={onEdit} />
-      {sorted.length === 0 ? (
-        <p className="bd-empty">{t("boardNotesEmpty")}</p>
-      ) : (
-        <ul className="bd-notes">
-          {sorted.map((n) => {
-            const k = noteKind(n.kind);
-            return (
-              <li key={n.id} className="bd-note" style={k.color ? { borderLeftColor: k.color } : undefined}>
-                <div className="bd-note__head">
-                  {k.icon ? <span className="bd-note__icon">{k.icon}</span> : null}
-                  {n.title ? <strong className="bd-note__title">{n.title}</strong> : null}
-                  {n.pinned ? <span className="bd-note__pin" title={t("boardPinned")}>📌</span> : null}
-                </div>
-                {n.body ? <p className="bd-note__body">{n.body}</p> : null}
-              </li>
-            );
-          })}
-        </ul>
-      )}
+      <CardHead t={t} icon="📢" title={t("boardNotesTitle")} onEdit={onEdit} />
+      <ul className="bd-notes">
+        {sorted.map((n) => {
+          const k = noteKind(n.kind);
+          return (
+            <li key={n.id} className="bd-note" style={k.color ? { borderLeftColor: k.color } : undefined}>
+              <div className="bd-note__head">
+                {k.icon ? <span className="bd-note__icon">{k.icon}</span> : null}
+                {n.title ? <strong className="bd-note__title">{n.title}</strong> : null}
+                {n.pinned ? (
+                  <span className="bd-note__pin" title={t("boardPinned")}>
+                    📌
+                  </span>
+                ) : null}
+              </div>
+              {n.body ? <p className="bd-note__body">{n.body}</p> : null}
+            </li>
+          );
+        })}
+      </ul>
     </section>
   );
 }
 
 function MealCard({ t, meal, onEdit }) {
-  const cells = mealCellsForToday(meal?.monthly);
-  const text = String(meal?.text ?? "").trim();
-  const image = String(meal?.image ?? "");
   return (
     <section className="bd-card bd-card--meal">
-      <CardHead t={t} title={t("boardMealTitle")} onEdit={onEdit} />
-      {image ? (
-        <img className="bd-meal__img" src={image} alt={t("boardMealTitle")} />
-      ) : cells ? (
+      <CardHead t={t} icon="🍽️" title={t("boardMealTitle")} onEdit={onEdit} />
+      {meal.image ? (
+        <img className="bd-meal__img" src={meal.image} alt={t("boardMealTitle")} />
+      ) : meal.cells ? (
         <div className="bd-meal__grid">
-          {cells.map((c, i) => (
+          {meal.cells.map((c, i) => (
             <span key={i} className="bd-meal__cell">
               {c || " "}
             </span>
           ))}
         </div>
-      ) : text ? (
-        <p className="bd-meal__text">{text}</p>
       ) : (
-        <p className="bd-empty">{t("boardMealEmpty")}</p>
+        <p className="bd-meal__text">{meal.text}</p>
       )}
     </section>
   );
@@ -227,29 +249,24 @@ function RatesCard({ t, locale, rates, onEdit }) {
     [locale]
   );
   const fetchedAt = rates.fetchedAt ? timeFmt.format(new Date(rates.fetchedAt)) : "";
-  if (rates.mode !== "auto") {
-    return (
-      <section className="bd-card bd-card--rates">
-        <CardHead t={t} title={t("boardRatesTitle")} onEdit={onEdit} />
-        <p className="bd-empty">
-          {t("boardRatesOff")} — {t("boardRatesOffHint")}
-        </p>
-      </section>
-    );
-  }
   return (
     <section className="bd-card bd-card--rates">
-      <CardHead t={t} title={t("boardRatesTitle")} onEdit={onEdit} />
+      <CardHead t={t} icon="💱" title={t("boardRatesTitle")} onEdit={onEdit} />
       <ul className="bd-rates">
         {rates.codes.map((code) => {
           const v = rates.values?.[code];
-          const dir = !v || v.prev == null ? 0 : v.value > v.prev ? 1 : v.value < v.prev ? -1 : 0;
+          if (!v) return null;
+          const dir = v.prev == null ? 0 : v.value > v.prev ? 1 : v.value < v.prev ? -1 : 0;
           return (
             <li key={code} className="bd-rate">
-              <span className="bd-rate__code">
-                {code}/{rates.base}
+              <span className="bd-rate__sign" aria-hidden>
+                {CURRENCY_SIGNS[code] || code.slice(0, 1)}
               </span>
-              <span className="bd-rate__value">{v ? fmt.format(v.value) : "—"}</span>
+              <span className="bd-rate__code">
+                {code}
+                <span className="bd-rate__base">/{rates.base}</span>
+              </span>
+              <span className="bd-rate__value">{fmt.format(v.value)}</span>
               <span className={`bd-rate__dir ${dir > 0 ? "is-up" : dir < 0 ? "is-down" : ""}`} aria-hidden>
                 {dir > 0 ? "▲" : dir < 0 ? "▼" : ""}
               </span>
@@ -258,13 +275,7 @@ function RatesCard({ t, locale, rates, onEdit }) {
         })}
       </ul>
       <p className="bd-card__foot">
-        {rates.error
-          ? fetchedAt
-            ? t("boardRatesStale", { time: fetchedAt })
-            : t("boardRatesUnavailable")
-          : fetchedAt
-            ? t("boardRatesUpdated", { time: fetchedAt })
-            : t("boardRatesWaiting")}
+        {rates.error ? t("boardRatesStale", { time: fetchedAt }) : t("boardRatesUpdated", { time: fetchedAt })}
       </p>
     </section>
   );
@@ -305,57 +316,100 @@ function AppsCard({ t, apps, onNotice, onEdit }) {
 
   return (
     <section className="bd-card bd-card--apps">
-      <CardHead t={t} title={t("boardAppsTitle")} onEdit={onEdit} />
-      {apps.length === 0 ? (
-        <p className="bd-empty">{t("boardAppsEmpty")}</p>
-      ) : (
-        <div className="bd-apps">
-          {apps.map((app) => {
-            const localPath = app.kind === "local" ? readLocalAppPath(app.id) : "";
-            return (
-              <div key={app.id} className="bd-app">
+      <CardHead t={t} icon="🚀" title={t("boardAppsTitle")} onEdit={onEdit} />
+      <div className="bd-apps">
+        {apps.map((app) => {
+          const localPath = app.kind === "local" ? readLocalAppPath(app.id) : "";
+          return (
+            <div key={app.id} className="bd-app">
+              <button
+                type="button"
+                className="bd-app__btn"
+                onClick={() => void launch(app)}
+                title={app.kind === "web" ? app.url : localPath || t("boardAppLocalPick")}
+              >
+                <span className="bd-app__icon">{app.icon || (app.kind === "web" ? "🌐" : "🖥️")}</span>
+                <span className="bd-app__name">{app.name || app.url}</span>
+              </button>
+              {app.kind === "local" && localPath && desktop ? (
                 <button
                   type="button"
-                  className="bd-app__btn"
-                  onClick={() => void launch(app)}
-                  title={app.kind === "web" ? app.url : localPath || t("boardAppLocalPick")}
+                  className="bd-app__change"
+                  onClick={() => void pick(app)}
+                  title={t("boardAppLocalChange")}
                 >
-                  <span className="bd-app__icon">{app.icon || (app.kind === "web" ? "🌐" : "🖥️")}</span>
-                  <span className="bd-app__name">{app.name || app.url}</span>
+                  ⋯
                 </button>
-                {app.kind === "local" && localPath && desktop ? (
-                  <button
-                    type="button"
-                    className="bd-app__change"
-                    onClick={() => void pick(app)}
-                    title={t("boardAppLocalChange")}
-                  >
-                    ⋯
-                  </button>
-                ) : null}
-              </div>
-            );
-          })}
-        </div>
-      )}
+              ) : null}
+            </div>
+          );
+        })}
+      </div>
     </section>
   );
 }
 
-function BoardView({ t, locale, board, canEdit, onNotice, onEdit }) {
-  const edit = (key) => (canEdit ? () => onEdit(key) : undefined);
-  /** Kurlar kapalıyken panel yalnızca düzenleyene görünür (açabilmesi için). */
-  const showRates = board.rates?.mode === "auto" || canEdit;
+/** Düzenleyene boş bölümler için "ekle" kutucukları (personel görmez). */
+function AddTiles({ t, content, onEdit }) {
+  const tiles = [
+    !content.notes.length && { key: "notes", icon: "📢", label: t("boardAddNotes") },
+    !content.meal && { key: "meal", icon: "🍽️", label: t("boardAddMeal") },
+    !content.rates && {
+      key: "rates",
+      icon: "💱",
+      label: content.ratesOff ? t("boardAddRates") : t("boardRatesUnavailable")
+    },
+    !content.apps.length && { key: "apps", icon: "🚀", label: t("boardAddApps") }
+  ].filter(Boolean);
+  if (!tiles.length) return null;
   return (
-    <div className="bd-grid">
-      <NotesCard t={t} notes={board.notes || []} onEdit={edit("notes")} />
-      <div className="bd-side">
-        <MealCard t={t} meal={board.meal} onEdit={edit("meal")} />
-        {showRates ? <RatesCard t={t} locale={locale} rates={board.rates} onEdit={edit("rates")} /> : null}
-        <AppsCard t={t} apps={board.apps || []} onNotice={onNotice} onEdit={edit("apps")} />
-      </div>
-      {!canEdit ? <p className="bd-readonly">{t("boardReadonlyHint")}</p> : null}
+    <div className="bd-add-tiles">
+      {tiles.map((x) => (
+        <button key={x.key} type="button" className="bd-add-tile" onClick={() => onEdit(x.key)}>
+          <span className="bd-add-tile__icon" aria-hidden>
+            {x.icon}
+          </span>
+          <span className="bd-add-tile__label">{x.label}</span>
+          <span className="bd-add-tile__plus" aria-hidden>
+            +
+          </span>
+        </button>
+      ))}
     </div>
+  );
+}
+
+function BoardView({ t, locale, board, canEdit, onNotice, onEdit }) {
+  const content = boardContent(board);
+  const edit = (key) => (canEdit ? () => onEdit(key) : undefined);
+  const side = [
+    content.meal && <MealCard key="meal" t={t} meal={content.meal} onEdit={edit("meal")} />,
+    content.rates && <RatesCard key="rates" t={t} locale={locale} rates={content.rates} onEdit={edit("rates")} />,
+    content.apps.length > 0 && (
+      <AppsCard key="apps" t={t} apps={content.apps} onNotice={onNotice} onEdit={edit("apps")} />
+    )
+  ].filter(Boolean);
+  const hasNotes = content.notes.length > 0;
+  const isEmpty = !hasNotes && side.length === 0;
+
+  return (
+    <>
+      {isEmpty ? (
+        <div className={`bd-state bd-state--empty ${canEdit ? "" : "bd-state--center"}`}>
+          <div className="bd-state__icon" aria-hidden>
+            🗒️
+          </div>
+          <h2 className="bd-state__title">{t("boardEmptyTitle")}</h2>
+          <p className="bd-state__text">{canEdit ? t("boardEmptyAdminText") : t("boardEmptyText")}</p>
+        </div>
+      ) : (
+        <div className={`bd-grid ${hasNotes && side.length ? "" : "bd-grid--single"}`}>
+          {hasNotes ? <NotesCard t={t} notes={content.notes} onEdit={edit("notes")} /> : null}
+          {side.length ? <div className="bd-side">{side}</div> : null}
+        </div>
+      )}
+      {canEdit ? <AddTiles t={t} content={content} onEdit={onEdit} /> : null}
+    </>
   );
 }
 

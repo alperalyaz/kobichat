@@ -6,8 +6,20 @@ contextBridge.exposeInMainWorld("kobiChat", {
   openInfoWindow: (options) => ipcRenderer.invoke("kobichat:open-info-window", options),
   openSettingsWindow: () => ipcRenderer.invoke("kobichat:open-settings-window"),
   openQuickMessagesWindow: () => ipcRenderer.invoke("kobichat:open-quick-messages"),
-  /** Ana pencere boyutu: "roster" (dar liste) | "board" (Pano sekmesi, geniş). */
-  setMainWindowMode: (mode) => ipcRenderer.invoke("kobichat:set-main-window-mode", mode),
+  /** Sustalı Pano çekmecesi: liste → aç/kapat; çekmece → hazır / kapanma animasyonu bitti. */
+  toggleBoardDrawer: (payload) => ipcRenderer.invoke("kobichat:board-drawer-toggle", payload),
+  onBoardDrawerState: (fn) => {
+    const handler = (_e, p) => fn(p);
+    ipcRenderer.on("kobichat:board-drawer-state", handler);
+    return () => ipcRenderer.removeListener("kobichat:board-drawer-state", handler);
+  },
+  onBoardDrawer: (fn) => {
+    const handler = (_e, p) => fn(p);
+    ipcRenderer.on("kobichat:board-drawer", handler);
+    return () => ipcRenderer.removeListener("kobichat:board-drawer", handler);
+  },
+  boardDrawerReady: () => ipcRenderer.send("kobichat:board-drawer-ready"),
+  boardDrawerHidden: () => ipcRenderer.send("kobichat:board-drawer-hidden"),
   showShock: (payload) => ipcRenderer.invoke("kobichat:show-shock", payload),
   showNotify: (payload) => ipcRenderer.invoke("kobichat:show-notify", payload),
   pickLocalApp: () => ipcRenderer.invoke("kobichat:pick-local-app"),
