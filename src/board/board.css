@@ -659,7 +659,9 @@ textarea.bd-input {
 }
 
 .board-handle {
-  --bh-grad: linear-gradient(180deg, #0ea5e9 0%, #6366f1 55%, #8b5cf6 100%);
+  /* Marka turuncusu (logo): açık #F2A55C → ana #D2702A → koyu #B4520F */
+  --bh-brand: #d2702a;
+  --bh-grad: linear-gradient(180deg, #f2a55c 0%, #d2702a 55%, #b4520f 100%);
   position: relative;
   flex-shrink: 0;
   width: 24px;
@@ -712,7 +714,7 @@ textarea.bd-input {
 .board-handle.is-open {
   color: #fff;
   border-color: transparent;
-  box-shadow: 0 6px 20px rgba(99, 102, 241, 0.35);
+  box-shadow: 0 6px 20px rgba(210, 112, 42, 0.4);
 }
 
 .board-handle:hover::before,
@@ -731,7 +733,7 @@ textarea.bd-input {
 }
 
 .board-handle:focus-visible {
-  outline: 2px solid var(--accent);
+  outline: 2px solid var(--bh-brand);
   outline-offset: 2px;
 }
 
@@ -787,8 +789,8 @@ textarea.bd-input {
 }
 
 .board-handle.has-news:not(:hover):not(:focus-visible) {
-  color: var(--accent);
-  border-color: var(--accent);
+  color: var(--bh-brand);
+  border-color: var(--bh-brand);
 }
 
 .board-handle__dot {
