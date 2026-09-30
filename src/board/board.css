@@ -664,16 +664,16 @@ textarea.bd-input {
   --bh-grad: linear-gradient(180deg, #f2a55c 0%, #d2702a 55%, #b4520f 100%);
   position: relative;
   flex-shrink: 0;
-  width: 24px;
+  width: 14px;
   align-self: stretch;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 12px;
+  gap: 10px;
   padding: 12px 0;
   border: 1px solid var(--border);
-  border-radius: 12px;
+  border-radius: 8px;
   background: var(--bg-elevated);
   color: var(--muted);
   font: inherit;
@@ -749,14 +749,14 @@ textarea.bd-input {
 .board-handle__label {
   writing-mode: vertical-rl;
   transform: rotate(180deg);
-  font-size: 11px;
+  font-size: 9.5px;
   font-weight: 800;
-  letter-spacing: 0.24em;
+  letter-spacing: 0.2em;
   text-transform: uppercase;
 }
 
 .board-handle__chev {
-  font-size: 16px;
+  font-size: 13px;
   font-weight: 700;
   line-height: 1;
   transition: transform 0.3s cubic-bezier(0.2, 0.8, 0.2, 1);
@@ -781,7 +781,7 @@ textarea.bd-input {
 }
 
 .board-handle__grip {
-  width: 4px;
+  width: 3px;
   height: 14px;
   border-radius: 2px;
   background: currentColor;
