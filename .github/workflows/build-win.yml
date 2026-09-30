@@ -62,6 +62,10 @@ jobs:
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: "false"
 
+      # Ayrı çalışan (node ile başlatılmış) sunucular için tek dosyalık güncelleyici.
+      - name: Build server updater (.cmd)
+        run: node scripts/make-server-updater.cjs release-build
+
       # GitHub Releases'e yükle. Artifact kotasına TAKILMAZ (artifact'ler
       # her build'de birikip 500MB ücretsiz sınırı dolduruyordu). Aynı sürüm
       # tag'i varsa günceller; latest.yml + blockmap electron-updater içindir.
@@ -77,3 +81,4 @@ jobs:
             release-build/*.exe.blockmap
             release-build/latest*.yml
             release-build/*.appx
+            release-build/KobiChat-Sunucu-Guncelle.cmd
