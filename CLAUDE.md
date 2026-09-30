@@ -18,7 +18,11 @@ yapılabiliyorsa **öyle yap**; kullanıcıya emir verir gibi adım adım görev
 
 ## ⚠️ Yayından önce onay
 Kullanıcıya görünen her değişiklikte **yayınlamadan önce ekran görüntüsü (gerekirse hareketli GIF)
-gönder, onayını bekle**; ancak "tamam" dedikten sonra sürümü yükseltip `main`'e gönder.
+gönder, onayını bekle**.
+- **Sürüm yükseltip `main`'e göndermek yalnızca kullanıcı açıkça "yayınla / release al" dediğinde.**
+  Bir tasarımı beğenmesi ya da bir seçeneği seçmesi ("14 yap", "tamam güzel") yayın onayı DEĞİLDİR;
+  değişikliği `feature/pano`'ya kaydet, "yayınlayayım mı?" diye sor. Kullanıcı çoğu zaman birkaç işi
+  tek sürümde toplamak ister.
 Görüntüleri bu ortamda gerçek uygulamadan çek (aşağıdaki "Doğrulama"); kullanıcıdan
 `npm run` vb. çalıştırmasını isteme.
 
