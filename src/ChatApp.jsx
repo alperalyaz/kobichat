@@ -7,6 +7,7 @@ import {
   normalizeClientUuid
 } from "./theme.js";
 import { EmojiRichText } from "./EmojiRichText.jsx";
+import { MessageText, toQuoteLines } from "./MessageText.jsx";
 import { EMOJI_QUICK_PICK } from "./emojiMapper.js";
 import { LANGS, MESSAGES } from "./i18n/messages.js";
 import { detectBrowserLang, normalizeLang, useI18n } from "./i18n/I18nContext.jsx";
@@ -627,7 +628,7 @@ function ChatMessageBubble({
         </div>
         {m.kind === "text" && (
           <div className="msg-body msg-body--emoji-rich">
-            <EmojiRichText text={m.text_content ?? ""} />
+            <MessageText text={m.text_content ?? ""} />
           </div>
         )}
         {m.kind === "file" && (
@@ -718,7 +719,7 @@ function ChatMessageBubble({
                 ) : null}
                 {m.text_content ? (
                   <div className="msg-file-caption msg-body--emoji-rich">
-                    <EmojiRichText text={m.text_content} />
+                    <MessageText text={m.text_content} />
                   </div>
                 ) : null}
               </>
@@ -2169,6 +2170,71 @@ export default function ChatApp() {
     }
   }, [sendTypingState]);
 
+  /**
+   * Mesaj metninden seçim yapılınca "Alıntıla" düğmesi: seçilen yazı "> " satırları olarak
+   * mesaj kutusunun sonuna eklenir, imleç altına geçer.
+   */
+  const [quoteSel, setQuoteSel] = useState(null);
+
+  useEffect(() => {
+    const bodyOf = (node) => {
+      const el = node && (node.nodeType === 1 ? node : node.parentElement);
+      return el?.closest?.(".msg-body") || null;
+    };
+    const update = () => {
+      const sel = window.getSelection();
+      if (!sel || sel.isCollapsed || sel.rangeCount === 0) {
+        setQuoteSel(null);
+        return;
+      }
+      const text = sel.toString().trim();
+      const body = bodyOf(sel.anchorNode);
+      if (!text || !body || bodyOf(sel.focusNode) !== body) {
+        setQuoteSel(null);
+        return;
+      }
+      const r = sel.getRangeAt(0).getBoundingClientRect();
+      const below = r.top < 48;
+      setQuoteSel({ text, x: r.left + r.width / 2, y: below ? r.bottom : r.top, below });
+    };
+    const onUp = () => setTimeout(update, 0);
+    const onSelChange = () => {
+      const sel = window.getSelection();
+      if (!sel || sel.isCollapsed) setQuoteSel(null);
+    };
+    const hide = () => setQuoteSel(null);
+    document.addEventListener("mouseup", onUp);
+    document.addEventListener("keyup", onUp);
+    document.addEventListener("selectionchange", onSelChange);
+    document.addEventListener("scroll", hide, true);
+    window.addEventListener("resize", hide);
+    return () => {
+      document.removeEventListener("mouseup", onUp);
+      document.removeEventListener("keyup", onUp);
+      document.removeEventListener("selectionchange", onSelChange);
+      document.removeEventListener("scroll", hide, true);
+      window.removeEventListener("resize", hide);
+    };
+  }, []);
+
+  const quoteSelection = useCallback(() => {
+    const el = composerRef.current;
+    const quote = toQuoteLines(quoteSel?.text);
+    setQuoteSel(null);
+    if (!el || !quote || !canSend || !mySocketId) return;
+    el.focus();
+    const range = document.createRange();
+    range.selectNodeContents(el);
+    range.collapse(false);
+    const sel = window.getSelection();
+    sel.removeAllRanges();
+    sel.addRange(range);
+    const existing = serializeComposer(el);
+    const prefix = existing.trim() && !existing.endsWith("\n") ? "\n" : "";
+    document.execCommand("insertText", false, `${prefix}${quote}\n`);
+    handleComposerInput();
+  }, [quoteSel, canSend, mySocketId, handleComposerInput]);
+
   const insertEmoji = (char) => {
     const el = composerRef.current;
     if (!el || !canSend || !mySocketId) return;
@@ -2741,6 +2807,20 @@ export default function ChatApp() {
               )}
               <div ref={bottomRef} />
             </div>
+            {quoteSel && canSend && mySocketId ? (
+              <button
+                type="button"
+                className={`quote-float${quoteSel.below ? " quote-float--below" : ""}`}
+                style={{ left: quoteSel.x, top: quoteSel.y }}
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={quoteSelection}
+              >
+                <span className="quote-float__icon" aria-hidden>
+                  ❝
+                </span>
+                {t("quoteSelection")}
+              </button>
+            ) : null}
           </section>
 
           <div className="chat-typing-strip" aria-live="polite">

@@ -13,13 +13,20 @@ export function serializeComposer(root) {
   if (!root) return "";
   let out = "";
 
+  /** Blok (DIV/P) yeni satırda başlar; bloktan sonra gelen düz metin de yeni satırdadır. */
+  const isBlock = (node) => node.nodeName === "DIV" || node.nodeName === "P";
+  const newLine = () => {
+    if (out && !out.endsWith("\n")) out += "\n";
+  };
+
   function walkChildren(parent) {
     const kids = parent.childNodes;
+    let afterBlock = false;
     for (let i = 0; i < kids.length; i++) {
-      if (i > 0 && kids[i].nodeName === "DIV" && kids[i - 1].nodeName === "DIV") {
-        out += "\n";
-      }
-      walkNode(kids[i]);
+      const kid = kids[i];
+      if (isBlock(kid) || afterBlock) newLine();
+      walkNode(kid);
+      afterBlock = isBlock(kid);
     }
   }
 
