@@ -527,6 +527,7 @@ function ChatMessageBubble({
   isMine,
   onDownloadAttachment,
   onOpenDownloaded,
+  onRevealDownloaded,
   localPath,
   onImagePreview,
   statusState,
@@ -699,6 +700,32 @@ function ChatMessageBubble({
                       {actionLabel}
                     </button>
                   )}
+                  {m.file_rel ? (
+                    <button
+                      type="button"
+                      className="msg-file-card__action msg-file-card__action--folder"
+                      title={t("revealInFolder")}
+                      aria-label={t("revealInFolder")}
+                      onClick={() => {
+                        /** Dosya zaten indirildiyse doğrudan göster; değilse indirip göster. */
+                        if (hasLocalFile) {
+                          onRevealDownloaded?.(localPath);
+                          return;
+                        }
+                        onDownloadAttachment?.({
+                          messageId: m.id,
+                          fileSize: m.file_size,
+                          url: filePublicUrl(m.file_rel),
+                          filename: displayFileName || t("fileFallback"),
+                          mime: m.file_mime || "",
+                          fileRel: m.file_rel || "",
+                          revealAfter: true
+                        });
+                      }}
+                    >
+                      {t("revealInFolderShort")}
+                    </button>
+                  ) : null}
                 </div>
                 {isImageMime(m.file_mime) && m.file_rel ? (
                   <img
@@ -2029,6 +2056,17 @@ export default function ChatApp() {
     if (dt?.files?.length) await requestUploadFiles(dt.files);
   };
 
+  /** Zaten indirilmiş dosyayı Gezgin'de göster. */
+  const onRevealDownloadedPath = useCallback(async (diskPath) => {
+    const p = String(diskPath || "").trim();
+    if (!p || !window.kobiChat?.revealDownloaded) return;
+    const r = await window.kobiChat.revealDownloaded({ path: p });
+    if (!r?.ok) {
+      playSound("error");
+      alert(String(r?.reason || "") === "not_found" ? t("downloadMissingOnServer") : t("downloadFailed"));
+    }
+  }, [t]);
+
   const onOpenDownloadedPath = useCallback(
     async (diskPath) => {
       const p = String(diskPath || "").trim();
@@ -2051,7 +2089,7 @@ export default function ChatApp() {
   );
 
   const onDownloadAttachment = useCallback(
-    async ({ url, filename, mime, fileRel, messageId, fileSize, openAfter }) => {
+    async ({ url, filename, mime, fileRel, messageId, fileSize, openAfter, revealAfter }) => {
       if (!url && !fileRel) return;
       if (window.kobiChat?.downloadAndHandle) {
         /**
@@ -2132,6 +2170,19 @@ export default function ChatApp() {
             return;
           }
           alert(`${t("downloadFailed")}${supportSuffix}`);
+          return;
+        }
+        if (revealAfter && savedPath && window.kobiChat?.revealDownloaded) {
+          /**
+           * "Klasör" butonu: indirme bitince dosyayı Gezgin'de seçili göster.
+           * Kullanıcı dosyayı başka bir diske taşımak isteyebiliyor; açmak
+           * yerine yerini göstermek gerekiyor.
+           */
+          try {
+            await window.kobiChat.revealDownloaded({ path: savedPath });
+          } catch {
+            // ignored
+          }
           return;
         }
         if (openAfter && savedPath && window.kobiChat?.openDownloaded) {
@@ -2794,6 +2845,7 @@ export default function ChatApp() {
                     isMine={isMineMessage(m)}
                     onDownloadAttachment={onDownloadAttachment}
                     onOpenDownloaded={onOpenDownloadedPath}
+                    onRevealDownloaded={onRevealDownloadedPath}
                     localPath={localDownloadByMessageId[String(m.id)] || ""}
                     onImagePreview={setAttachmentPreview}
                     statusState={statusStateForMessage(m)}
@@ -3289,6 +3341,7 @@ export default function ChatApp() {
                         isMine={isMineMessage(m)}
                         onDownloadAttachment={onDownloadAttachment}
                         onOpenDownloaded={onOpenDownloadedPath}
+                        onRevealDownloaded={onRevealDownloadedPath}
                         localPath={localDownloadByMessageId[String(m.id)] || ""}
                         onImagePreview={setAttachmentPreview}
                         statusState={statusStateForMessage(m)}

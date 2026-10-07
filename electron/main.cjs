@@ -2316,6 +2316,35 @@ if (!app.requestSingleInstanceLock()) {
       }
     });
 
+    /**
+     * İndirilmiş dosyayı Gezgin'de seçili olarak gösterir. "Aç" dosyayı
+     * ilişkili programla açıyor; kullanıcı dosyanın kendisini (ör. başka bir
+     * diske taşımak için) görmek istediğinde bu gerekiyor.
+     * Güvenlik: open-downloaded ile aynı beyaz liste — yalnızca KobiChat'in
+     * kendi indirme klasörleri.
+     */
+    ipcMain.handle("kobichat:reveal-downloaded", (_e, payload) => {
+      const raw = String(payload?.path || "").trim();
+      if (!raw) return { ok: false, reason: "invalid_path" };
+      try {
+        const resolved = path.resolve(raw);
+        if (!fs.existsSync(resolved)) return { ok: false, reason: "not_found" };
+        const allowedDirs = [
+          path.join(app.getPath("documents"), "kobiChat"),
+          path.join(app.getPath("downloads"), "kobiChat"),
+          path.join(app.getPath("userData"), "kobiChat-downloads")
+        ];
+        if (!allowedDirs.some((dir) => isPathUnderDirectory(resolved, dir))) {
+          return { ok: false, reason: "forbidden" };
+        }
+        shell.showItemInFolder(resolved);
+        return { ok: true };
+      } catch (e) {
+        console.error("reveal-downloaded:", e);
+        return { ok: false, reason: "reveal_failed" };
+      }
+    });
+
     ipcMain.handle("kobichat:refresh-tray-menu", () => {
       refreshTrayMenu();
       return true;

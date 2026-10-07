@@ -27,6 +27,8 @@ contextBridge.exposeInMainWorld("kobiChat", {
   openExternal: (url) => ipcRenderer.invoke("kobichat:open-external", url),
   downloadAndHandle: (payload) => ipcRenderer.invoke("kobichat:download-and-handle", payload),
   openDownloaded: (payload) => ipcRenderer.invoke("kobichat:open-downloaded", payload),
+  /** İndirilmiş dosyayı Gezgin'de seçili göster (başka diske taşımak için). */
+  revealDownloaded: (payload) => ipcRenderer.invoke("kobichat:reveal-downloaded", payload),
   /**
    * Main process'in renderer'a "şu sesi çal" diye yolladığı sinyali dinler.
    * Ör. autoUpdater'dan "update-available" geldiğinde.

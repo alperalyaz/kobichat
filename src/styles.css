@@ -3546,3 +3546,16 @@ html[data-theme="light"] .qm-row__send:hover:not(:disabled) {
     margin-top: 0;
   }
 }
+
+/* Dosya kartında "Klasörde göster" ikincil aksiyonu */
+.msg-file-card__action--folder {
+  margin-left: 6px;
+  background: transparent;
+  font-weight: 500;
+  opacity: 0.85;
+}
+
+.msg-file-card__action--folder:hover {
+  opacity: 1;
+  border-color: var(--accent);
+}
