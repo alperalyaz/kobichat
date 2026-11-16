@@ -26,7 +26,7 @@ Ekran görüntülerindeki isimler ve mesajlar örnektir.
 - Sürükle bırak ile dosya paylaşımı, dosya başına 80 MB'a kadar
 - Çevrimdışı kişilere yazılan mesajlar sunucuda bekler, kişi bağlanınca iletilir
 - Toplu mesaj: Ctrl ile birkaç kişiyi seçip hepsine birden yazma
-- Durum (Müsait, Meşgul, Dışarıda) ve dikkat çekmek için "titreşim"
+- Durum (Uygun, Meşgul, Dışarıda) ve dikkat çekmek için "titreşim"
 - Ctrl+1 ile Ctrl+7 arası hızlı mesajlar, mesaj arama, sohbet geçmişi
 - Açık ve koyu tema, profil resmi, türüne göre bildirim sesleri
 - Türkçe, İngilizce, Almanca, Fransızca ve İspanyolca
