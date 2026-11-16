@@ -14,6 +14,10 @@ company in Denizli, Türkiye, and used there every day.
 **Get it:** [Microsoft Store](https://apps.microsoft.com/detail/9N01GLSS1KBJ) ·
 [Windows installer](https://github.com/alperalyaz/kobichat/releases/latest)
 
+![A KobiChat conversation next to the contact list](docs/chat.jpg)
+
+The screenshots show the Turkish interface with sample names and messages.
+
 ## What it does
 
 **Chat**
@@ -39,6 +43,10 @@ A drawer next to the contact list that the whole office sees:
 - An urgent notice shown full screen, in red and with sound, on every open computer
 
 The board can only be edited from the computer that runs the server.
+
+![The contact list with the board closed and open](docs/board.jpg)
+
+![An urgent notice covering the screen](docs/urgent.jpg)
 
 ## Setting it up
 
@@ -115,6 +123,10 @@ npm run test:cluster         # durable log and idempotency
 `electron/` holds the main process, `server/` the chat server and the board,
 `src/` the interface. A push to `main` builds and publishes a release through
 GitHub Actions.
+
+## License
+
+[MIT](LICENSE) © 2026 Hidroteknik A.Ş.
 
 ---
 

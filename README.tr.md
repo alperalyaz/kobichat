@@ -14,6 +14,10 @@ için geliştirildi ve orada her gün kullanılıyor.
 **İndir:** [Microsoft Store](https://apps.microsoft.com/detail/9N01GLSS1KBJ) ·
 [Windows kurulum dosyası](https://github.com/alperalyaz/kobichat/releases/latest)
 
+![Kişi listesinin yanında bir KobiChat sohbeti](docs/chat.jpg)
+
+Ekran görüntülerindeki isimler ve mesajlar örnektir.
+
 ## Ne yapar
 
 **Sohbet**
@@ -39,6 +43,10 @@ Kişi listesinin yanında açılan, bütün ofisin gördüğü çekmece:
 - Açık olan bütün bilgisayarlarda tam ekran, kırmızı ve sesli gösterilen acil duyuru
 
 Pano yalnızca sunucuyu çalıştıran bilgisayardan düzenlenir.
+
+![Pano kapalı ve açıkken kişi listesi](docs/board.jpg)
+
+![Ekranı kaplayan acil duyuru](docs/urgent.jpg)
 
 ## Kurulum
 
@@ -114,6 +122,10 @@ npm run test:cluster         # kalıcı kayıt ve tekrar eden isteklerin tek say
 
 `electron/` ana süreci, `server/` sohbet sunucusunu ve panoyu, `src/` arayüzü içerir.
 `main` dalına yapılan gönderim, GitHub Actions üzerinden sürümü derleyip yayınlar.
+
+## Lisans
+
+[MIT](LICENSE) © 2026 Hidroteknik A.Ş.
 
 ---
 
